@@ -7,10 +7,12 @@ import { useOrg } from '../../app/org/useOrg'
 import { queryClient } from '../../app/queryClient'
 import { PageHeader } from '../../components/PageHeader'
 import { MoneyInput } from '../../components/inputs/MoneyInput'
-import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
+import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
 import { parseNumberPtBr } from '../../lib/number'
+import type { ChangeEvent } from 'react'
 import { fetchProducts } from '../products/productsApi'
 import { createSale, deleteSale, fetchSales, type Sale } from './salesApi'
 
@@ -145,20 +147,27 @@ export function SalesPage() {
         description="Registre vendas e acompanhe faturamento e lucro bruto (com snapshot de custo)."
         right={
           <label className="block">
-            <div className="mb-1 text-xs font-medium text-slate-700">Mês</div>
-            <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+            <div className="mb-1 text-xs font-medium text-muted-foreground">Mês</div>
+            <Input
+              type="month"
+              value={month}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setMonth(e.target.value)}
+            />
           </label>
         }
       />
 
-      <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="mb-3 text-sm font-medium text-slate-800">Nova venda</div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Nova venda</CardTitle>
+        </CardHeader>
+        <CardContent>
         <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 gap-3 md:grid-cols-10">
           <div className="md:col-span-3">
             <label className="block">
-              <div className="mb-1 text-sm font-medium text-slate-700">Produto</div>
+              <div className="mb-1 text-sm font-medium text-muted-foreground">Produto</div>
               <select
-                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 value={selectedProductId ?? ''}
                 onChange={(e) => onPickProduct(e.target.value)}
               >
@@ -170,19 +179,19 @@ export function SalesPage() {
                 ))}
               </select>
             </label>
-            {errors.product_id ? <div className="mt-1 text-xs text-rose-600">{errors.product_id.message}</div> : null}
+            {errors.product_id ? <div className="mt-1 text-xs text-destructive">{errors.product_id.message}</div> : null}
           </div>
 
           <div className="md:col-span-2">
             <label className="block">
-              <div className="mb-1 text-sm font-medium text-slate-700">Data</div>
+              <div className="mb-1 text-sm font-medium text-muted-foreground">Data</div>
               <Input type="date" {...register('sold_date')} />
             </label>
           </div>
 
           <div className="md:col-span-1">
             <label className="block">
-              <div className="mb-1 text-sm font-medium text-slate-700">
+              <div className="mb-1 text-sm font-medium text-muted-foreground">
                 Qtd. {selectedProduct?.unit ? `(${selectedProduct.unit})` : ''}
               </div>
               <Input inputMode="decimal" placeholder="0" {...register('qty')} />
@@ -199,7 +208,7 @@ export function SalesPage() {
               {...register('unit_cost_snapshot')}
             />
             {selectedProduct?.latest_cost?.cost != null ? (
-              <div className="mt-1 text-xs text-slate-600">
+              <div className="mt-1 text-xs text-muted-foreground">
                 Último custo do produto: {formatMoney(selectedProduct.latest_cost.cost)}
               </div>
             ) : null}
@@ -207,7 +216,7 @@ export function SalesPage() {
 
           <div className="md:col-span-8">
             <label className="block">
-              <div className="mb-1 text-sm font-medium text-slate-700">Observações (opcional)</div>
+              <div className="mb-1 text-sm font-medium text-muted-foreground">Observações (opcional)</div>
               <Input placeholder="Ex.: Cliente X, NF, etc." {...register('notes')} />
             </label>
           </div>
@@ -218,11 +227,10 @@ export function SalesPage() {
             </Button>
           </div>
 
-          {errorMsg ? (
-            <div className="md:col-span-10 text-sm text-rose-700">{errorMsg}</div>
-          ) : null}
+          {errorMsg ? <div className="md:col-span-10 text-sm text-destructive">{errorMsg}</div> : null}
         </form>
-      </section>
+        </CardContent>
+      </Card>
 
       <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <Kpi title="Faturamento" value={formatMoney(totals.revenue)} />
@@ -231,17 +239,20 @@ export function SalesPage() {
         <Kpi title="Margem" value={`${(totals.margin * 100).toFixed(2)}%`} />
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <div className="mb-3 text-sm font-medium text-slate-800">Vendas do mês</div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Vendas do mês</CardTitle>
+        </CardHeader>
+        <CardContent>
 
         {salesQuery.isLoading ? (
-          <div className="text-sm text-slate-600">Carregando…</div>
+          <div className="text-sm text-muted-foreground">Carregando…</div>
         ) : salesQuery.isError ? (
           <div className="text-sm text-rose-700">Erro ao carregar vendas.</div>
         ) : (salesQuery.data ?? []).length === 0 ? (
-          <div className="text-sm text-slate-700">Nenhuma venda registrada neste mês.</div>
+          <div className="text-sm text-muted-foreground">Nenhuma venda registrada neste mês.</div>
         ) : (
-          <div className="divide-y divide-slate-200 rounded-md border border-slate-200">
+          <div className="divide-y divide-border rounded-md border border-border">
             {(salesQuery.data ?? []).map((s) => (
               <SaleRow
                 key={s.id}
@@ -252,17 +263,22 @@ export function SalesPage() {
             ))}
           </div>
         )}
-      </section>
+        </CardContent>
+      </Card>
     </div>
   )
 }
 
 function Kpi({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="text-xs font-medium text-slate-700">{title}</div>
-      <div className="mt-1 text-lg font-semibold text-slate-900">{value}</div>
-    </div>
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-semibold">{value}</div>
+      </CardContent>
+    </Card>
   )
 }
 

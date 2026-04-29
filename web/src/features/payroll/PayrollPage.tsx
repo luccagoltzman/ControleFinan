@@ -6,19 +6,24 @@ import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useOrg } from '../../app/org/useOrg'
 import { queryClient } from '../../app/queryClient'
-import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
+import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
 import { MoneyInput } from '../../components/inputs/MoneyInput'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
+import type { ChangeEvent } from 'react'
 import {
   createEmployee,
   createEntry,
   createPeriod,
   fetchEmployees,
+  fetchEmployeePayments,
   fetchEntries,
   fetchPeriods,
+  setEmployeePaid,
   setPeriodStatus,
   type Employee,
+  type PayrollEmployeePayment,
   type PayrollEntry,
   updateEmployee,
 } from './payrollApi'
@@ -26,6 +31,8 @@ import {
 const CreateEmployeeSchema = z.object({
   name: z.string().min(2, 'Informe um nome'),
   base_salary: z.string().optional(),
+  role_title: z.string().optional(),
+  pay_day: z.string().optional(),
 })
 
 type CreateEmployeeValues = z.infer<typeof CreateEmployeeSchema>
@@ -55,8 +62,12 @@ export function PayrollPage() {
   })
 
   const createEmployeeMutation = useMutation({
-    mutationFn: (input: { name: string; base_salary: number }) =>
-      createEmployee({ organization_id: activeOrgId!, ...input }),
+    mutationFn: (input: {
+      name: string
+      base_salary: number
+      role_title: string | null
+      pay_day: number | null
+    }) => createEmployee({ organization_id: activeOrgId!, ...input }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['payroll', 'employees'] })
     },
@@ -76,9 +87,19 @@ export function PayrollPage() {
       setErrorMsg('Salário base inválido')
       return
     }
+    const payDayRaw = values.pay_day?.trim() ? Number(values.pay_day) : null
+    if (payDayRaw != null && (!Number.isInteger(payDayRaw) || payDayRaw < 1 || payDayRaw > 31)) {
+      setErrorMsg('Dia de pagamento inválido (1 a 31)')
+      return
+    }
     try {
-      await createEmployeeMutation.mutateAsync({ name: values.name, base_salary: salary })
-      reset({ name: '', base_salary: '' })
+      await createEmployeeMutation.mutateAsync({
+        name: values.name,
+        base_salary: salary,
+        role_title: values.role_title?.trim() ? values.role_title.trim() : null,
+        pay_day: payDayRaw,
+      })
+      reset({ name: '', base_salary: '', role_title: '', pay_day: '' })
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erro ao criar colaborador')
     }
@@ -98,6 +119,27 @@ export function PayrollPage() {
       setPeriodStatus({ organization_id: activeOrgId!, ...input }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['payroll', 'periods'] })
+    },
+  })
+
+  const paymentsQuery = useQuery({
+    queryKey: ['payroll', 'payments', { org: activeOrgId, period: selectedPeriodId }],
+    queryFn: () =>
+      fetchEmployeePayments({ organization_id: activeOrgId!, period_id: selectedPeriodId! }),
+    enabled: !!activeOrgId && !!selectedPeriodId,
+  })
+
+  const payMutation = useMutation({
+    mutationFn: (input: { employee_id: string; is_paid: boolean; pay_date: string | null }) =>
+      setEmployeePaid({
+        organization_id: activeOrgId!,
+        period_id: selectedPeriodId!,
+        employee_id: input.employee_id,
+        is_paid: input.is_paid,
+        pay_date: input.pay_date,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['payroll', 'payments'] })
     },
   })
 
@@ -121,6 +163,13 @@ export function PayrollPage() {
   const periods = periodsQuery.data ?? []
   const employees = employeesQuery.data ?? []
   const selectedPeriod = periods.find((p) => p.id === selectedPeriodId) ?? null
+  const [payDate, setPayDate] = useState(() => new Date().toISOString().slice(0, 10))
+
+  const paymentsByEmployee = useMemo(() => {
+    const map = new Map<string, PayrollEmployeePayment>()
+    for (const p of paymentsQuery.data ?? []) map.set(p.employee_id, p)
+    return map
+  }, [paymentsQuery.data])
 
   const periodTotals = useMemo(() => {
     const entries = entriesQuery.data ?? []
@@ -141,45 +190,64 @@ export function PayrollPage() {
         description="Colaboradores, períodos mensais e lançamentos de proventos/descontos."
       />
 
-      <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="mb-3 text-sm font-medium text-slate-800">Colaboradores</div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Colaboradores</CardTitle>
+        </CardHeader>
+        <CardContent>
 
-        <form onSubmit={handleSubmit(onCreateEmployee)} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <form onSubmit={handleSubmit(onCreateEmployee)} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
           <div className="sm:col-span-2">
             <Input placeholder="Nome" {...register('name')} />
-            {errors.name ? <div className="mt-1 text-xs text-rose-600">{errors.name.message}</div> : null}
+            {errors.name ? <div className="mt-1 text-xs text-destructive">{errors.name.message}</div> : null}
           </div>
           <div>
             <MoneyInput label="Salário base (opcional)" {...register('base_salary')} />
+          </div>
+          <div>
+            <label className="block">
+              <div className="mb-1 text-sm font-medium text-muted-foreground">Função (opcional)</div>
+              <Input placeholder="Ex.: Vendedor" {...register('role_title')} />
+            </label>
+          </div>
+          <div>
+            <label className="block">
+              <div className="mb-1 text-sm font-medium text-muted-foreground">Dia do pagamento (1–31)</div>
+              <Input inputMode="numeric" placeholder="Ex.: 5" {...register('pay_day')} />
+            </label>
           </div>
           <div className="sm:col-span-3 flex items-center gap-2">
             <Button type="submit" disabled={isSubmitting}>
               Adicionar
             </Button>
-            {errorMsg ? <div className="text-sm text-rose-700">{errorMsg}</div> : null}
+            {errorMsg ? <div className="text-sm text-destructive">{errorMsg}</div> : null}
           </div>
         </form>
 
         <div className="mt-4 space-y-2">
           {employeesQuery.isLoading ? (
-            <div className="text-sm text-slate-600">Carregando…</div>
+            <div className="text-sm text-muted-foreground">Carregando…</div>
           ) : employees.length === 0 ? (
-            <div className="text-sm text-slate-700">Nenhum colaborador cadastrado.</div>
+            <div className="text-sm text-muted-foreground">Nenhum colaborador cadastrado.</div>
           ) : (
             employees.map((e) => (
               <EmployeeRow key={e.id} employee={e} organizationId={activeOrgId!} />
             ))
           )}
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Período</CardTitle>
+        </CardHeader>
+        <CardContent>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="text-sm font-medium text-slate-800">Período</div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <select
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
                 value={selectedPeriodId ?? ''}
                 onChange={(e) => setSelectedPeriodId(e.target.value || null)}
               >
@@ -192,8 +260,14 @@ export function PayrollPage() {
               </select>
 
               {selectedPeriod ? (
-                <div className="text-xs text-slate-600">
-                  Status: <span className="font-medium text-slate-800">{selectedPeriod.status}</span>
+                <div className="text-xs text-muted-foreground">
+                  Status: <span className="font-medium text-foreground">{selectedPeriod.status}</span>
+                  {selectedPeriod.paid_at ? (
+                    <>
+                      {' '}
+                      • Baixado em <span className="font-medium">{new Date(selectedPeriod.paid_at).toLocaleString()}</span>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -201,11 +275,15 @@ export function PayrollPage() {
 
           <div className="flex flex-wrap items-end gap-2">
             <label className="block">
-              <div className="mb-1 text-xs font-medium text-slate-700">Criar mês</div>
-              <Input type="month" value={periodMonth} onChange={(e) => setPeriodMonth(e.target.value)} />
+              <div className="mb-1 text-xs font-medium text-muted-foreground">Criar mês</div>
+              <Input
+                type="month"
+                value={periodMonth}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setPeriodMonth(e.target.value)}
+              />
             </label>
             <Button
-              variant="secondary"
+              variant="outline"
               onClick={() => createPeriodMutation.mutate({ month: periodMonth })}
               disabled={createPeriodMutation.isPending}
             >
@@ -213,7 +291,7 @@ export function PayrollPage() {
             </Button>
             {selectedPeriod ? (
               <Button
-                variant={selectedPeriod.status === 'open' ? 'secondary' : 'ghost'}
+                variant={selectedPeriod.status === 'open' ? 'outline' : 'ghost'}
                 onClick={() =>
                   setStatusMutation.mutate({
                     id: selectedPeriod.id,
@@ -227,7 +305,30 @@ export function PayrollPage() {
             ) : null}
           </div>
         </div>
-      </section>
+
+        {selectedPeriod ? (
+          <div className="mt-4 flex flex-wrap items-end gap-2 rounded-md border border-border bg-muted/40 p-3">
+            <label className="block">
+              <div className="mb-1 text-xs font-medium text-muted-foreground">Data do pagamento</div>
+              <Input
+                type="date"
+                value={payDate}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setPayDate(e.target.value)}
+              />
+            </label>
+            <Button
+              variant="outline"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['payroll', 'payments'] })}
+            >
+              Atualizar checklist
+            </Button>
+            <div className="text-xs text-muted-foreground">
+              Dica: marque “Pago” por funcionário no checklist abaixo.
+            </div>
+          </div>
+        ) : null}
+        </CardContent>
+      </Card>
 
       {selectedPeriodId ? (
         <section className="rounded-lg border border-slate-200 bg-white p-4">
@@ -242,7 +343,29 @@ export function PayrollPage() {
             {entriesQuery.isLoading ? (
               <div className="text-sm text-slate-600">Carregando lançamentos…</div>
             ) : (
-              <TotalsView employees={employees} entries={periodTotals.entries} />
+              <>
+                <TotalsView employees={employees} entries={periodTotals.entries} />
+                <div className="mt-6">
+                  <div className="mb-2 text-sm font-medium text-slate-800">Checklist de pagamento</div>
+                  {paymentsQuery.isLoading ? (
+                    <div className="text-sm text-slate-600">Carregando checklist…</div>
+                  ) : (
+                    <PaymentChecklist
+                      employees={employees.filter((e) => e.is_active)}
+                      paymentsByEmployee={paymentsByEmployee}
+                      defaultPayDate={payDate}
+                      onTogglePaid={async (employeeId, nextPaid) =>
+                        payMutation.mutateAsync({
+                          employee_id: employeeId,
+                          is_paid: nextPaid,
+                          pay_date: nextPaid ? payDate : null,
+                        })
+                      }
+                      isSaving={payMutation.isPending}
+                    />
+                  )}
+                </div>
+              </>
             )}
           </div>
         </section>
@@ -253,7 +376,13 @@ export function PayrollPage() {
 
 function EmployeeRow({ employee, organizationId }: { employee: Employee; organizationId: string }) {
   const mutation = useMutation({
-    mutationFn: (input: { name: string; base_salary: number; is_active: boolean }) =>
+    mutationFn: (input: {
+      name: string
+      base_salary: number
+      role_title: string | null
+      pay_day: number | null
+      is_active: boolean
+    }) =>
       updateEmployee({ id: employee.id, organization_id: organizationId, ...input }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['payroll', 'employees'] })
@@ -261,12 +390,15 @@ function EmployeeRow({ employee, organizationId }: { employee: Employee; organiz
   })
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2">
       <div>
-        <div className="text-sm font-medium text-slate-900">{employee.name}</div>
-        <div className="text-xs text-slate-600">Salário base: {formatMoney(employee.base_salary)}</div>
+        <div className="text-sm font-medium">{employee.name}</div>
+        <div className="text-xs text-muted-foreground">Salário base: {formatMoney(employee.base_salary)}</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          Função: {employee.role_title ?? '—'} • Dia do pagamento: {employee.pay_day ?? '—'}
+        </div>
       </div>
-      <label className="flex items-center gap-2 text-sm text-slate-700">
+      <label className="flex items-center gap-2 text-sm text-muted-foreground">
         <input
           type="checkbox"
           defaultChecked={employee.is_active}
@@ -274,6 +406,8 @@ function EmployeeRow({ employee, organizationId }: { employee: Employee; organiz
             mutation.mutate({
               name: employee.name,
               base_salary: employee.base_salary,
+              role_title: employee.role_title ?? null,
+              pay_day: employee.pay_day ?? null,
               is_active: e.target.checked,
             })
           }
@@ -438,6 +572,49 @@ function TotalsView({ employees, entries }: { employees: Employee[]; entries: Pa
         <div className="text-sm font-medium text-slate-800">Total do mês</div>
         <div className="text-sm font-semibold text-slate-900">{formatMoney(totalMonth)}</div>
       </div>
+    </div>
+  )
+}
+
+function PaymentChecklist({
+  employees,
+  paymentsByEmployee,
+  defaultPayDate,
+  onTogglePaid,
+  isSaving,
+}: {
+  employees: Employee[]
+  paymentsByEmployee: Map<string, PayrollEmployeePayment>
+  defaultPayDate: string
+  onTogglePaid: (employeeId: string, nextPaid: boolean) => Promise<void>
+  isSaving: boolean
+}) {
+  return (
+    <div className="divide-y divide-slate-200 rounded-md border border-slate-200">
+      {employees.map((e) => {
+        const payment = paymentsByEmployee.get(e.id) ?? null
+        const isPaid = !!payment?.paid_at
+        const payDate = payment?.pay_date ?? defaultPayDate
+        return (
+          <div key={e.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+            <div>
+              <div className="text-sm text-slate-900">{e.name}</div>
+              <div className="text-xs text-slate-600">
+                Função: {e.role_title ?? '—'} • Dia: {e.pay_day ?? '—'} • Data: {payDate}
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={isPaid}
+                disabled={isSaving}
+                onChange={() => onTogglePaid(e.id, !isPaid)}
+              />
+              {isPaid ? 'Pago' : 'Não pago'}
+            </label>
+          </div>
+        )
+      })}
     </div>
   )
 }

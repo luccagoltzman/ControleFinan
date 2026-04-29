@@ -6,12 +6,14 @@ import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useOrg } from '../../app/org/useOrg'
 import { queryClient } from '../../app/queryClient'
-import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
+import { Button as ShButton } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
 import { MoneyInput } from '../../components/inputs/MoneyInput'
 import { PercentInput } from '../../components/inputs/PercentInput'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
 import { parsePercentTo01 } from '../../lib/percent'
+import type { ChangeEvent } from 'react'
 import {
   addCost,
   createProduct,
@@ -76,34 +78,38 @@ export function ProductsPage() {
         description="Cadastre produtos, custos e compare preço por markup e margem-alvo."
       />
 
-      <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="mb-3 text-sm font-medium text-slate-800">Novo produto</div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Novo produto</CardTitle>
+        </CardHeader>
+        <CardContent>
         <form onSubmit={handleSubmit(onCreate)} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="sm:col-span-2">
             <Input placeholder="Ex.: Tilápia" {...register('name')} />
-            {errors.name ? <div className="mt-1 text-xs text-rose-600">{errors.name.message}</div> : null}
+            {errors.name ? <div className="mt-1 text-xs text-destructive">{errors.name.message}</div> : null}
           </div>
           <div>
             <Input placeholder="Unidade (ex.: kg)" {...register('unit')} />
-            {errors.unit ? <div className="mt-1 text-xs text-rose-600">{errors.unit.message}</div> : null}
+            {errors.unit ? <div className="mt-1 text-xs text-destructive">{errors.unit.message}</div> : null}
           </div>
           <div className="sm:col-span-3 flex items-center gap-2">
-            <Button type="submit" disabled={isSubmitting}>
+            <ShButton type="submit" disabled={isSubmitting}>
               Adicionar
-            </Button>
-            {errorMsg ? <div className="text-sm text-rose-700">{errorMsg}</div> : null}
+            </ShButton>
+            {errorMsg ? <div className="text-sm text-destructive">{errorMsg}</div> : null}
           </div>
         </form>
-      </section>
+        </CardContent>
+      </Card>
 
       {productsQuery.isLoading ? (
-        <div className="text-sm text-slate-600">Carregando produtos…</div>
+        <div className="text-sm text-muted-foreground">Carregando produtos…</div>
       ) : productsQuery.isError ? (
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           Erro ao carregar produtos.
         </div>
       ) : products.length === 0 ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
+        <div className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">
           Nenhum produto cadastrado ainda.
         </div>
       ) : (
@@ -216,9 +222,9 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" onClick={() => setIsEditing((v) => !v)}>
+          <ShButton variant="outline" onClick={() => setIsEditing((v) => !v)}>
             {isEditing ? 'Fechar' : 'Editar'}
-          </Button>
+          </ShButton>
         </div>
       </div>
 
@@ -253,7 +259,7 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
               <div className="mb-1 text-sm font-medium text-slate-700">Nome</div>
               <Input
                 defaultValue={product.name}
-                onBlur={(e) =>
+                onBlur={(e: ChangeEvent<HTMLInputElement>) =>
                   updateProductMutation.mutate({
                     name: e.target.value,
                     unit: product.unit,
@@ -266,7 +272,7 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
               <div className="mb-1 text-sm font-medium text-slate-700">Unidade</div>
               <Input
                 defaultValue={product.unit}
-                onBlur={(e) =>
+                onBlur={(e: ChangeEvent<HTMLInputElement>) =>
                   updateProductMutation.mutate({
                     name: product.name,
                     unit: e.target.value,
@@ -279,7 +285,7 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
               <input
                 type="checkbox"
                 defaultChecked={product.is_active}
-                onChange={(e) =>
+                onChange={(e: ChangeEvent<HTMLInputElement>) =>
                   updateProductMutation.mutate({
                     name: product.name,
                     unit: product.unit,
@@ -298,9 +304,9 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
               <div className="mb-1 text-sm font-medium text-slate-700">Data</div>
               <Input type="date" value={costDate} onChange={(e) => setCostDate(e.target.value)} />
             </label>
-            <Button variant="secondary" onClick={onAddCost} disabled={addCostMutation.isPending}>
+            <ShButton variant="outline" onClick={onAddCost} disabled={addCostMutation.isPending}>
               Salvar custo
-            </Button>
+            </ShButton>
           </div>
 
           <div className="space-y-2">
@@ -329,9 +335,9 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
               onChange={(e) => setMarginRaw(e.target.value)}
               disabled={mode === 'markup'}
             />
-            <Button variant="secondary" onClick={onSavePricing} disabled={pricingMutation.isPending}>
+            <ShButton variant="outline" onClick={onSavePricing} disabled={pricingMutation.isPending}>
               Salvar regra
-            </Button>
+            </ShButton>
             {saveError ? <div className="text-sm text-rose-700">{saveError}</div> : null}
           </div>
         </div>
