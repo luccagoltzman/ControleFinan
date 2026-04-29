@@ -4,6 +4,7 @@ import { RequireOrganization } from './routes/RequireOrganization'
 import { AppLayout } from '../features/layout/AppLayout'
 import { LoginPage } from '../features/auth/LoginPage'
 import { ProductsPage } from '../features/products/ProductsPage'
+import { SalesPage } from '../features/sales/SalesPage'
 import { PayrollPage } from '../features/payroll/PayrollPage'
 import { OrgPage } from '../features/org/OrgPage'
 
@@ -24,6 +25,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireOrganization>
             <ProductsPage />
+          </RequireOrganization>
+        ),
+      },
+      {
+        path: 'sales',
+        element: (
+          <RequireOrganization>
+            <SalesPage />
           </RequireOrganization>
         ),
       },

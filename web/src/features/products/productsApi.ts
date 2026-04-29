@@ -104,12 +104,15 @@ export async function addCost(input: {
   cost: number
   effective_date: string
 }) {
-  const { error } = await supabase.from('product_costs').insert({
-    organization_id: input.organization_id,
-    product_id: input.product_id,
-    cost: input.cost,
-    effective_date: input.effective_date,
-  })
+  const { error } = await supabase.from('product_costs').upsert(
+    {
+      organization_id: input.organization_id,
+      product_id: input.product_id,
+      cost: input.cost,
+      effective_date: input.effective_date,
+    },
+    { onConflict: 'product_id,effective_date' },
+  )
   if (error) throw error
 }
 

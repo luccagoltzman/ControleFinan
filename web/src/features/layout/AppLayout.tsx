@@ -43,6 +43,7 @@ export function AppLayout() {
         <aside className="rounded-lg border border-slate-200 bg-white p-2">
           <nav className="space-y-1">
             <NavItem to="/app/products" label="Produtos" />
+            <NavItem to="/app/sales" label="Vendas" />
             <NavItem to="/app/payroll" label="Folha salarial" />
             <NavItem to="/app/org" label="Organização" />
           </nav>
