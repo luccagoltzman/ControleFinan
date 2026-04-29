@@ -16,14 +16,22 @@ async function fetchMemberships(): Promise<OrgMembership[]> {
 
   if (error) throw error
 
-  return (data ?? []).map((row) => ({
-    organization_id: row.organization_id as string,
-    role: row.role as OrgMembership['role'],
-    organization: {
-      id: (row.organizations as { id: string; name: string } | null)?.id ?? row.organization_id,
-      name: (row.organizations as { id: string; name: string } | null)?.name ?? 'Organização',
-    },
-  }))
+  return (data ?? []).map((row) => {
+    const rawOrg = (row as unknown as { organizations?: unknown }).organizations
+    const org =
+      rawOrg && Array.isArray(rawOrg)
+        ? (rawOrg[0] as { id?: string; name?: string } | undefined)
+        : (rawOrg as { id?: string; name?: string } | null | undefined)
+
+    return {
+      organization_id: row.organization_id as string,
+      role: row.role as OrgMembership['role'],
+      organization: {
+        id: org?.id ?? (row.organization_id as string),
+        name: org?.name ?? 'Organização',
+      },
+    }
+  })
 }
 
 export function OrgProvider({ children }: PropsWithChildren) {
