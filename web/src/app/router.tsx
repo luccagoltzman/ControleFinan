@@ -8,6 +8,7 @@ import { SalesPage } from '../features/sales/SalesPage'
 import { PayrollPage } from '../features/payroll/PayrollPage'
 import { OrgPage } from '../features/org/OrgPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
+import { RegionsPage } from '../features/regions/RegionsPage'
 
 export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/app/products" replace /> },
@@ -26,6 +27,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireOrganization>
             <DashboardPage />
+          </RequireOrganization>
+        ),
+      },
+      {
+        path: 'regions',
+        element: (
+          <RequireOrganization>
+            <RegionsPage />
           </RequireOrganization>
         ),
       },

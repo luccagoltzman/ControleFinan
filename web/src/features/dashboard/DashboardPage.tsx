@@ -41,6 +41,7 @@ export function DashboardPage() {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [unitFilter, setUnitFilter] = useState<'all' | 'kg' | 'un'>('all')
   const [productFilter, setProductFilter] = useState<string>('all')
+  const [regionFilter, setRegionFilter] = useState<string>('all')
 
   const { fromIso, toIso } = useMemo(() => monthRange(month), [month])
 
@@ -66,8 +67,9 @@ export function DashboardPage() {
     let s = salesQuery.data ?? []
     if (unitFilter !== 'all') s = s.filter((x) => x.qty_unit === unitFilter)
     if (productFilter !== 'all') s = s.filter((x) => x.product_id === productFilter)
+    if (regionFilter !== 'all') s = s.filter((x) => x.region_id === regionFilter)
     return s
-  }, [salesQuery.data, unitFilter, productFilter])
+  }, [salesQuery.data, unitFilter, productFilter, regionFilter])
 
   const totals = useMemo(() => {
     const revenue = filteredSales.reduce((acc, s) => acc + s.qty * s.unit_price, 0)
@@ -174,6 +176,25 @@ export function DashboardPage() {
               <option value="all">Todas</option>
               <option value="kg">kg</option>
               <option value="un">un</option>
+            </select>
+          </div>
+          <div className="md:col-span-3">
+            <Label>Região</Label>
+            <select
+              className="mt-1 h-10 w-full rounded-md border border-input bg-background/80 px-3 text-sm shadow-sm"
+              value={regionFilter}
+              onChange={(e) => setRegionFilter(e.target.value)}
+            >
+              <option value="all">Todas</option>
+              {Array.from(
+                new Map((salesQuery.data ?? []).map((s) => [s.region_id ?? 'none', s.region?.name ?? 'Sem região'])).entries(),
+              )
+                .filter(([id]) => id !== 'none')
+                .map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
             </select>
           </div>
           <div className="md:col-span-6 flex items-center">

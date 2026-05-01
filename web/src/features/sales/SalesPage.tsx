@@ -27,8 +27,10 @@ import { parseNumberPtBr } from '../../lib/number'
 import type { ChangeEvent } from 'react'
 import { fetchProducts } from '../products/productsApi'
 import { createSale, deleteSale, fetchSales, type Sale } from './salesApi'
+import { fetchRegions } from '../regions/regionsApi'
 
 const CreateSaleSchema = z.object({
+  region_id: z.string().optional(),
   product_id: z.string().min(1, 'Selecione um produto'),
   sold_date: z.string().min(10),
   qty_unit: z.enum(['kg', 'un']),
@@ -60,6 +62,12 @@ export function SalesPage() {
     enabled: !!activeOrgId,
   })
 
+  const regionsQuery = useQuery({
+    queryKey: ['regions', { org: activeOrgId }],
+    queryFn: () => fetchRegions(activeOrgId!),
+    enabled: !!activeOrgId,
+  })
+
   const salesQuery = useQuery({
     queryKey: ['sales', { org: activeOrgId, month }],
     queryFn: () => fetchSales({ organizationId: activeOrgId!, fromIso, toIso }),
@@ -68,6 +76,7 @@ export function SalesPage() {
 
   const createMutation = useMutation({
     mutationFn: (input: {
+      region_id: string | null
       product_id: string
       sold_at: string
       qty: number
@@ -159,6 +168,7 @@ export function SalesPage() {
 
     try {
       await createMutation.mutateAsync({
+        region_id: values.region_id?.trim() ? values.region_id.trim() : null,
         product_id: values.product_id,
         sold_at: new Date(`${values.sold_date}T12:00:00`).toISOString(),
         qty,
@@ -229,6 +239,20 @@ export function SalesPage() {
               </DialogHeader>
 
               <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 md:grid-cols-12">
+                <div className="md:col-span-4">
+                  <Label>Região</Label>
+                  <select
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    {...register('region_id')}
+                  >
+                    <option value="">(Sem região)</option>
+                    {(regionsQuery.data ?? []).map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="md:col-span-5">
                   <Label>Produto</Label>
                   <select
@@ -419,6 +443,7 @@ function SaleRow({
           Qtd: {sale.qty}
           {unit ? ` ${unit}` : ''} • Preço: {formatMoney(sale.unit_price)} • Custo:{' '}
           {formatMoney(sale.unit_cost_snapshot)}
+          {sale.region?.name ? ` • Região ${sale.region.name}` : ''}
           {sale.notes ? ` • ${sale.notes}` : ''}
         </div>
       </div>

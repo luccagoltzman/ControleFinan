@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, Building2, LayoutDashboard, Package, Receipt, Wallet } from 'lucide-react'
+import { BarChart3, Building2, LayoutDashboard, MapPinned, Package, Receipt, Wallet } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
 import { useAuth } from '../../app/auth/useAuth'
@@ -103,6 +103,7 @@ export function AppLayout() {
               <NavItem to="/app/dashboard" label="Dashboard" icon={LayoutDashboard} collapsed={isCollapsed} />
               <NavItem to="/app/products" label="Produtos" icon={Package} collapsed={isCollapsed} />
               <NavItem to="/app/sales" label="Vendas" icon={Receipt} collapsed={isCollapsed} />
+              <NavItem to="/app/regions" label="Regiões" icon={MapPinned} collapsed={isCollapsed} />
               <NavItem to="/app/payroll" label="Folha salarial" icon={Wallet} collapsed={isCollapsed} />
               <NavItem to="/app/org" label="Organização" icon={Building2} collapsed={isCollapsed} />
             </nav>
