@@ -6,7 +6,6 @@ import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useOrg } from '../../app/org/useOrg'
 import { queryClient } from '../../app/queryClient'
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button as ShButton } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { MoneyInput } from '../../components/inputs/MoneyInput'
@@ -37,12 +36,17 @@ import {
 const CreateProductSchema = z.object({
   name: z.string().min(2, 'Informe um nome'),
   unit: z.string().min(1, 'Informe a unidade (ex.: kg)'),
+  cost_kg: z.string().optional(),
+  cost_un: z.string().optional(),
+  target_profit_kg: z.string().optional(),
+  target_profit_un: z.string().optional(),
 })
 type CreateProductValues = z.infer<typeof CreateProductSchema>
 
 export function ProductsPage() {
   const { activeOrgId } = useOrg()
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
 
   const productsQuery = useQuery({
     queryKey: ['products', { org: activeOrgId }],
@@ -53,6 +57,33 @@ export function ProductsPage() {
   const createMutation = useMutation({
     mutationFn: (values: CreateProductValues) =>
       createProduct({ organization_id: activeOrgId!, name: values.name, unit: values.unit }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['products'] })
+    },
+  })
+
+  const addCostMutation = useMutation({
+    mutationFn: (input: { product_id: string; unit: QtyUnit; cost: number; effective_date: string }) =>
+      addCost({
+        organization_id: activeOrgId!,
+        product_id: input.product_id,
+        unit: input.unit,
+        cost: input.cost,
+        effective_date: input.effective_date,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['products'] })
+    },
+  })
+
+  const targetMutation = useMutation({
+    mutationFn: (input: { product_id: string; unit: QtyUnit; target_profit_amount: number }) =>
+      upsertProfitTarget({
+        organization_id: activeOrgId!,
+        product_id: input.product_id,
+        unit: input.unit,
+        target_profit_amount: input.target_profit_amount,
+      }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['products'] })
     },
@@ -71,8 +102,35 @@ export function ProductsPage() {
   async function onCreate(values: CreateProductValues) {
     setErrorMsg(null)
     try {
-      await createMutation.mutateAsync(values)
-      reset({ name: '', unit: values.unit })
+      const created = await createMutation.mutateAsync(values)
+
+      const today = new Date().toISOString().slice(0, 10)
+      const costKg = values.cost_kg?.trim() ? parseMoneyPtBr(values.cost_kg) : null
+      const costUn = values.cost_un?.trim() ? parseMoneyPtBr(values.cost_un) : null
+      const targetKg = values.target_profit_kg?.trim() ? parseMoneyPtBr(values.target_profit_kg) : null
+      const targetUn = values.target_profit_un?.trim() ? parseMoneyPtBr(values.target_profit_un) : null
+
+      if (values.cost_kg?.trim() && costKg == null) throw new Error('Custo kg inválido')
+      if (values.cost_un?.trim() && costUn == null) throw new Error('Custo un inválido')
+      if (values.target_profit_kg?.trim() && targetKg == null) throw new Error('Alvo kg inválido')
+      if (values.target_profit_un?.trim() && targetUn == null) throw new Error('Alvo un inválido')
+
+      if (costKg != null) {
+        await addCostMutation.mutateAsync({ product_id: created.id, unit: 'kg', cost: costKg, effective_date: today })
+      }
+      if (costUn != null) {
+        await addCostMutation.mutateAsync({ product_id: created.id, unit: 'un', cost: costUn, effective_date: today })
+      }
+      if (targetKg != null) {
+        await targetMutation.mutateAsync({ product_id: created.id, unit: 'kg', target_profit_amount: targetKg })
+      }
+      if (targetUn != null) {
+        await targetMutation.mutateAsync({ product_id: created.id, unit: 'un', target_profit_amount: targetUn })
+      }
+
+      reset({ name: '', unit: values.unit, cost_kg: '', cost_un: '', target_profit_kg: '', target_profit_un: '' })
+      toast({ title: 'Produto criado e configurado' })
+      setCreateOpen(false)
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erro ao criar produto')
     }
@@ -84,32 +142,54 @@ export function ProductsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Produtos"
-        description="Cadastre produtos, custos e compare preço por markup e margem-alvo."
-      />
+        description="Cadastre produtos, custos (kg/un) e alvo de lucro (kg/un). O preço de venda você digita na venda."
+        right={
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <ShButton>Novo produto</ShButton>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Novo produto</DialogTitle>
+                <DialogDescription>
+                  Cadastre o produto já completo (custos e alvo por kg/un). Você pode ajustar depois em “Editar”.
+                </DialogDescription>
+              </DialogHeader>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Novo produto</CardTitle>
-        </CardHeader>
-        <CardContent>
-        <form onSubmit={handleSubmit(onCreate)} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="sm:col-span-2">
-            <Input placeholder="Ex.: Tilápia" {...register('name')} />
-            {errors.name ? <div className="mt-1 text-xs text-destructive">{errors.name.message}</div> : null}
-          </div>
-          <div>
-            <Input placeholder="Unidade (ex.: kg)" {...register('unit')} />
-            {errors.unit ? <div className="mt-1 text-xs text-destructive">{errors.unit.message}</div> : null}
-          </div>
-          <div className="sm:col-span-3 flex items-center gap-2">
-            <ShButton type="submit" disabled={isSubmitting}>
-              Adicionar
-            </ShButton>
-            {errorMsg ? <div className="text-sm text-destructive">{errorMsg}</div> : null}
-          </div>
-        </form>
-        </CardContent>
-      </Card>
+              <form onSubmit={handleSubmit(onCreate)} className="grid grid-cols-1 gap-3">
+                <div>
+                  <Label>Nome</Label>
+                  <Input className="mt-1" placeholder="Ex.: Camarão" {...register('name')} />
+                  {errors.name ? <div className="mt-1 text-xs text-destructive">{errors.name.message}</div> : null}
+                </div>
+                <div>
+                  <Label>Unidade (apenas referência)</Label>
+                  <Input className="mt-1" placeholder="Ex.: kg" {...register('unit')} />
+                  {errors.unit ? <div className="mt-1 text-xs text-destructive">{errors.unit.message}</div> : null}
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    O sistema trabalha com custo/alvo por <b>kg</b> e <b>un</b>. Esse campo é só para exibição.
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <MoneyInput label="Custo (kg) (opcional)" {...register('cost_kg')} />
+                  <MoneyInput label="Custo (un) (opcional)" {...register('cost_un')} />
+                  <MoneyInput label="Alvo de lucro (kg) (opcional)" {...register('target_profit_kg')} />
+                  <MoneyInput label="Alvo de lucro (un) (opcional)" {...register('target_profit_un')} />
+                </div>
+
+                {errorMsg ? <div className="text-sm text-destructive">{errorMsg}</div> : null}
+
+                <DialogFooter>
+                  <ShButton type="submit" disabled={isSubmitting}>
+                    Criar produto
+                  </ShButton>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      />
 
       {productsQuery.isLoading ? (
         <div className="text-sm text-muted-foreground">Carregando produtos…</div>
