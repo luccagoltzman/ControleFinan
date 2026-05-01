@@ -7,6 +7,7 @@ import { ProductsPage } from '../features/products/ProductsPage'
 import { SalesPage } from '../features/sales/SalesPage'
 import { PayrollPage } from '../features/payroll/PayrollPage'
 import { OrgPage } from '../features/org/OrgPage'
+import { DashboardPage } from '../features/dashboard/DashboardPage'
 
 export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/app/products" replace /> },
@@ -20,6 +21,14 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <Navigate to="products" replace /> },
+      {
+        path: 'dashboard',
+        element: (
+          <RequireOrganization>
+            <DashboardPage />
+          </RequireOrganization>
+        ),
+      },
       {
         path: 'products',
         element: (

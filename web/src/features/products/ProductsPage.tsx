@@ -1,7 +1,7 @@
 import { PageHeader } from '../../components/PageHeader'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useOrg } from '../../app/org/useOrg'
@@ -10,20 +10,29 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 import { Button as ShButton } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { MoneyInput } from '../../components/inputs/MoneyInput'
-import { PercentInput } from '../../components/inputs/PercentInput'
+import { Label } from '../../components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '../../components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs'
+import { toast } from '../../components/toast/ToastHost'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
-import { parsePercentTo01 } from '../../lib/percent'
 import type { ChangeEvent } from 'react'
 import {
   addCost,
   createProduct,
   fetchProducts,
-  type PricingMode,
+  type QtyUnit,
   type Product,
   updateProduct,
-  upsertPricingRule,
+  upsertProfitTarget,
 } from './productsApi'
-import { calcSalePriceByMarkup, calcSalePriceByTargetMargin } from './pricing'
 
 const CreateProductSchema = z.object({
   name: z.string().min(2, 'Informe um nome'),
@@ -124,88 +133,77 @@ export function ProductsPage() {
 }
 
 function ProductCard({ product, organizationId }: { product: Product; organizationId: string }) {
-  const [isEditing, setIsEditing] = useState(false)
+  const today = new Date().toISOString().slice(0, 10)
   const [costRaw, setCostRaw] = useState('')
-  const [costDate, setCostDate] = useState<string>(() => new Date().toISOString().slice(0, 10))
-  const [mode, setMode] = useState<PricingMode>(product.pricing_rule?.mode ?? 'both')
-  const [markupRaw, setMarkupRaw] = useState(() =>
-    product.pricing_rule?.markup_percent != null ? String(product.pricing_rule.markup_percent * 100) : '',
-  )
-  const [marginRaw, setMarginRaw] = useState(() =>
-    product.pricing_rule?.target_margin_percent != null ? String(product.pricing_rule.target_margin_percent * 100) : '',
-  )
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [targetKgRaw, setTargetKgRaw] = useState(() =>
+    product.target_profit_kg != null ? String(product.target_profit_kg).replace('.', ',') : '',
+  )
+  const [targetUnRaw, setTargetUnRaw] = useState(() =>
+    product.target_profit_un != null ? String(product.target_profit_un).replace('.', ',') : '',
+  )
 
-  const latestCost = product.latest_cost?.cost ?? null
-  const markup01 = useMemo(() => (markupRaw ? parsePercentTo01(markupRaw) : null), [markupRaw])
-  const margin01 = useMemo(() => (marginRaw ? parsePercentTo01(marginRaw) : null), [marginRaw])
-
-  const saleByMarkup =
-    latestCost != null && markup01 != null ? calcSalePriceByMarkup(latestCost, markup01) : null
-  const saleByMargin =
-    latestCost != null && margin01 != null ? calcSalePriceByTargetMargin(latestCost, margin01) : null
+  const costKg = product.latest_cost_kg?.cost ?? null
+  const costUn = product.latest_cost_un?.cost ?? null
 
   const updateProductMutation = useMutation({
-    mutationFn: (input: { name: string; unit: string; is_active: boolean }) =>
+    mutationFn: (input: { name: string; unit: string; weight_per_unit_kg: number | null; is_active: boolean }) =>
       updateProduct({ id: product.id, organization_id: organizationId, ...input }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['products'] })
+      toast({ title: 'Produto atualizado' })
     },
   })
 
   const addCostMutation = useMutation({
-    mutationFn: (input: { cost: number; effective_date: string }) =>
+    mutationFn: (input: { cost: number; unit: QtyUnit; effective_date: string }) =>
       addCost({
         organization_id: organizationId,
         product_id: product.id,
         cost: input.cost,
+        unit: input.unit,
         effective_date: input.effective_date,
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['products'] })
+      toast({ title: 'Custo salvo' })
     },
   })
 
-  const pricingMutation = useMutation({
-    mutationFn: (input: {
-      mode: PricingMode
-      markup_percent: number | null
-      target_margin_percent: number | null
-    }) =>
-      upsertPricingRule({
+  const targetMutation = useMutation({
+    mutationFn: (input: { unit: QtyUnit; target_profit_amount: number }) =>
+      upsertProfitTarget({
         organization_id: organizationId,
         product_id: product.id,
-        ...input,
+        unit: input.unit,
+        target_profit_amount: input.target_profit_amount,
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['products'] })
+      toast({ title: 'Alvo de lucro salvo' })
     },
   })
 
-  async function onSavePricing() {
+  async function onSaveTarget(unit: QtyUnit) {
     setSaveError(null)
+    const raw = unit === 'kg' ? targetKgRaw : targetUnRaw
+    const n = parseMoneyPtBr(raw)
+    if (n == null) return setSaveError('Alvo de lucro inválido')
     try {
-      const markup = markupRaw ? parsePercentTo01(markupRaw) : null
-      const margin = marginRaw ? parsePercentTo01(marginRaw) : null
-      await pricingMutation.mutateAsync({
-        mode,
-        markup_percent: markup,
-        target_margin_percent: margin,
-      })
+      await targetMutation.mutateAsync({ unit, target_profit_amount: n })
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Erro ao salvar regra')
+      setSaveError(err instanceof Error ? err.message : 'Erro ao salvar alvo')
     }
   }
 
-  async function onAddCost() {
+  async function onSaveCost(unit: QtyUnit) {
+    // usa o mesmo campo "Custo" mas fixa unit e data como hoje
     setSaveError(null)
-    const n = parseMoneyPtBr(costRaw)
-    if (n == null) {
-      setSaveError('Custo inválido')
-      return
-    }
+    const raw = costRaw
+    const n = parseMoneyPtBr(raw)
+    if (n == null) return setSaveError('Custo inválido')
     try {
-      await addCostMutation.mutateAsync({ cost: n, effective_date: costDate })
+      await addCostMutation.mutateAsync({ cost: n, unit, effective_date: today })
       setCostRaw('')
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Erro ao salvar custo')
@@ -221,127 +219,194 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
             Unidade: {product.unit} • Status: {product.is_active ? 'ativo' : 'inativo'}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <ShButton variant="outline" onClick={() => setIsEditing((v) => !v)}>
-            {isEditing ? 'Fechar' : 'Editar'}
-          </ShButton>
-        </div>
+        <Dialog>
+          <DialogTrigger asChild>
+            <ShButton variant="outline">Editar</ShButton>
+          </DialogTrigger>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Editar {product.name}</DialogTitle>
+              <DialogDescription>
+                Cadastre somente: <b>custo (kg/un)</b> e <b>alvo de lucro (kg/un)</b>. Na venda você digita o preço vendido.
+              </DialogDescription>
+            </DialogHeader>
+
+            <Tabs defaultValue="costs">
+              <TabsList className="w-full justify-start">
+                <TabsTrigger value="costs">Custos</TabsTrigger>
+                <TabsTrigger value="profit">Lucro</TabsTrigger>
+                <TabsTrigger value="info">Produto</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="costs">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <div className="mb-3 text-sm font-semibold">kg → custo</div>
+                    <div className="text-xs text-muted-foreground">Atual: {costKg != null ? formatMoney(costKg) : '—'}</div>
+                    <div className="mt-3">
+                      <MoneyInput label="Custo por kg" value={costRaw} onChange={(e) => setCostRaw(e.target.value)} />
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <ShButton variant="default" onClick={() => onSaveCost('kg')} disabled={addCostMutation.isPending}>
+                        Salvar custo kg
+                      </ShButton>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <div className="mb-3 text-sm font-semibold">un → custo</div>
+                    <div className="text-xs text-muted-foreground">Atual: {costUn != null ? formatMoney(costUn) : '—'}</div>
+                    <div className="mt-3">
+                      <MoneyInput label="Custo por unidade" value={costRaw} onChange={(e) => setCostRaw(e.target.value)} />
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <ShButton variant="default" onClick={() => onSaveCost('un')} disabled={addCostMutation.isPending}>
+                        Salvar custo un
+                      </ShButton>
+                    </div>
+                  </div>
+                </div>
+                {saveError ? <div className="mt-3 text-sm text-destructive">{saveError}</div> : null}
+              </TabsContent>
+
+              <TabsContent value="profit">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <div className="mb-3 text-sm font-semibold">kg → alvo de lucro</div>
+                    <MoneyInput
+                      label="Quero ganhar (R$) por kg"
+                      value={targetKgRaw}
+                      onChange={(e) => setTargetKgRaw(e.target.value)}
+                    />
+                    <div className="mt-3">
+                      <ShButton variant="default" onClick={() => onSaveTarget('kg')} disabled={targetMutation.isPending}>
+                        Salvar alvo kg
+                      </ShButton>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Atual: {product.target_profit_kg != null ? formatMoney(product.target_profit_kg) : '—'}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <div className="mb-3 text-sm font-semibold">un → alvo de lucro</div>
+                    <MoneyInput
+                      label="Quero ganhar (R$) por unidade"
+                      value={targetUnRaw}
+                      onChange={(e) => setTargetUnRaw(e.target.value)}
+                    />
+                    <div className="mt-3">
+                      <ShButton variant="default" onClick={() => onSaveTarget('un')} disabled={targetMutation.isPending}>
+                        Salvar alvo un
+                      </ShButton>
+                    </div>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Atual: {product.target_profit_un != null ? formatMoney(product.target_profit_un) : '—'}
+                    </div>
+                  </div>
+                </div>
+                {saveError ? <div className="mt-3 text-sm text-destructive">{saveError}</div> : null}
+              </TabsContent>
+
+              <TabsContent value="info">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                    <div className="text-sm font-semibold">Dados do produto</div>
+                    <div>
+                      <Label className="text-muted-foreground">Nome</Label>
+                      <Input
+                        className="mt-1"
+                        defaultValue={product.name}
+                        onBlur={(e: ChangeEvent<HTMLInputElement>) =>
+                          updateProductMutation.mutate({
+                            name: e.target.value,
+                            unit: product.unit,
+                            weight_per_unit_kg: product.weight_per_unit_kg,
+                            is_active: product.is_active,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-muted-foreground">Unidade “padrão” (apenas exibição)</Label>
+                      <Input
+                        className="mt-1"
+                        defaultValue={product.unit}
+                        onBlur={(e: ChangeEvent<HTMLInputElement>) =>
+                          updateProductMutation.mutate({
+                            name: product.name,
+                            unit: e.target.value,
+                            weight_per_unit_kg: product.weight_per_unit_kg,
+                            is_active: product.is_active,
+                          })
+                        }
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        defaultChecked={product.is_active}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                          updateProductMutation.mutate({
+                            name: product.name,
+                            unit: product.unit,
+                            weight_per_unit_kg: product.weight_per_unit_kg,
+                            is_active: e.target.checked,
+                          })
+                        }
+                      />
+                      Ativo
+                    </label>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <div className="text-sm font-semibold">Resumo</div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      - Custo kg: <b className="text-foreground">{costKg != null ? formatMoney(costKg) : '—'}</b>
+                      <br />
+                      - Custo un: <b className="text-foreground">{costUn != null ? formatMoney(costUn) : '—'}</b>
+                      <br />
+                      - Alvo kg: <b className="text-foreground">{product.target_profit_kg != null ? formatMoney(product.target_profit_kg) : '—'}</b>
+                      <br />
+                      - Alvo un: <b className="text-foreground">{product.target_profit_un != null ? formatMoney(product.target_profit_un) : '—'}</b>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            <DialogFooter>
+              <div className="text-xs text-muted-foreground">
+                As alterações são salvas conforme você clica em “Salvar” (preço/custo) ou sai do campo (produto).
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
           <div className="text-xs font-medium text-slate-700">Custo (último)</div>
           <div className="mt-1 text-sm text-slate-900">
-            {latestCost != null ? formatMoney(latestCost) : '—'}
+            kg: {costKg != null ? formatMoney(costKg) : '—'} • un: {costUn != null ? formatMoney(costUn) : '—'}
           </div>
           <div className="mt-1 text-xs text-slate-600">
-            {product.latest_cost?.effective_date ?? ''}
+            {product.latest_cost_kg?.effective_date ?? product.latest_cost_un?.effective_date ?? ''}
           </div>
         </div>
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-          <div className="text-xs font-medium text-slate-700">Preço por markup</div>
-          <div className="mt-1 text-sm text-slate-900">{saleByMarkup != null ? formatMoney(saleByMarkup) : '—'}</div>
+          <div className="text-xs font-medium text-slate-700">Preço (kg)</div>
+          <div className="mt-1 text-sm text-slate-900">
+            {product.sale_price_kg != null ? formatMoney(product.sale_price_kg) : '—'}
+          </div>
         </div>
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-          <div className="text-xs font-medium text-slate-700">Preço por margem-alvo</div>
-          <div className="mt-1 text-sm text-slate-900">{saleByMargin != null ? formatMoney(saleByMargin) : '—'}</div>
-          {saleByMargin == null && margin01 != null ? (
-            <div className="mt-1 text-xs text-amber-700">Margem inválida (≥ 100%)</div>
-          ) : null}
+          <div className="text-xs font-medium text-slate-700">Preço (un)</div>
+          <div className="mt-1 text-sm text-slate-900">
+            {product.sale_price_un != null ? formatMoney(product.sale_price_un) : '—'}
+          </div>
         </div>
       </div>
 
-      {isEditing ? (
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-slate-800">Produto</div>
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-slate-700">Nome</div>
-              <Input
-                defaultValue={product.name}
-                onBlur={(e: ChangeEvent<HTMLInputElement>) =>
-                  updateProductMutation.mutate({
-                    name: e.target.value,
-                    unit: product.unit,
-                    is_active: product.is_active,
-                  })
-                }
-              />
-            </label>
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-slate-700">Unidade</div>
-              <Input
-                defaultValue={product.unit}
-                onBlur={(e: ChangeEvent<HTMLInputElement>) =>
-                  updateProductMutation.mutate({
-                    name: product.name,
-                    unit: e.target.value,
-                    is_active: product.is_active,
-                  })
-                }
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                defaultChecked={product.is_active}
-                onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                  updateProductMutation.mutate({
-                    name: product.name,
-                    unit: product.unit,
-                    is_active: e.target.checked,
-                  })
-                }
-              />
-              Ativo
-            </label>
-          </div>
-
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-slate-800">Novo custo</div>
-            <MoneyInput label="Custo" value={costRaw} onChange={(e) => setCostRaw(e.target.value)} />
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-slate-700">Data</div>
-              <Input type="date" value={costDate} onChange={(e) => setCostDate(e.target.value)} />
-            </label>
-            <ShButton variant="outline" onClick={onAddCost} disabled={addCostMutation.isPending}>
-              Salvar custo
-            </ShButton>
-          </div>
-
-          <div className="space-y-2">
-            <div className="text-sm font-medium text-slate-800">Regra de preço</div>
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-slate-700">Modo</div>
-              <select
-                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
-                value={mode}
-                onChange={(e) => setMode(e.target.value as PricingMode)}
-              >
-                <option value="both">Comparar (markup e margem)</option>
-                <option value="markup">Somente markup</option>
-                <option value="target_margin">Somente margem-alvo</option>
-              </select>
-            </label>
-            <PercentInput
-              label="Markup (%)"
-              value={markupRaw}
-              onChange={(e) => setMarkupRaw(e.target.value)}
-              disabled={mode === 'target_margin'}
-            />
-            <PercentInput
-              label="Margem-alvo (%)"
-              value={marginRaw}
-              onChange={(e) => setMarginRaw(e.target.value)}
-              disabled={mode === 'markup'}
-            />
-            <ShButton variant="outline" onClick={onSavePricing} disabled={pricingMutation.isPending}>
-              Salvar regra
-            </ShButton>
-            {saveError ? <div className="text-sm text-rose-700">{saveError}</div> : null}
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }

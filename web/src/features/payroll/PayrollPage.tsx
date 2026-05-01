@@ -9,6 +9,17 @@ import { queryClient } from '../../app/queryClient'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
+import { Label } from '../../components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '../../components/ui/dialog'
+import { toast } from '../../components/toast/ToastHost'
 import { MoneyInput } from '../../components/inputs/MoneyInput'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
 import type { ChangeEvent } from 'react'
@@ -99,6 +110,7 @@ export function PayrollPage() {
         role_title: values.role_title?.trim() ? values.role_title.trim() : null,
         pay_day: payDayRaw,
       })
+      toast({ title: 'Funcionário criado' })
       reset({ name: '', base_salary: '', role_title: '', pay_day: '' })
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erro ao criar colaborador')
@@ -140,6 +152,7 @@ export function PayrollPage() {
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['payroll', 'payments'] })
+      toast({ title: 'Checklist atualizado' })
     },
   })
 
@@ -191,40 +204,51 @@ export function PayrollPage() {
       />
 
       <Card>
-        <CardHeader>
-          <CardTitle>Colaboradores</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Colaboradores</CardTitle>
+            <div className="text-sm text-muted-foreground">Cadastre e acompanhe informações de pagamento.</div>
+          </div>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button>Novo colaborador</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Novo colaborador</DialogTitle>
+                <DialogDescription>Preencha só o essencial. Você pode ajustar depois.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleSubmit(onCreateEmployee)} className="grid grid-cols-1 gap-3">
+                <div>
+                  <Label>Nome</Label>
+                  <Input className="mt-1" placeholder="Ex.: João" {...register('name')} />
+                  {errors.name ? (
+                    <div className="mt-1 text-xs text-destructive">{errors.name.message}</div>
+                  ) : null}
+                </div>
+                <MoneyInput label="Salário base (opcional)" {...register('base_salary')} />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label>Função (opcional)</Label>
+                    <Input className="mt-1" placeholder="Ex.: Vendedor" {...register('role_title')} />
+                  </div>
+                  <div>
+                    <Label>Dia do pagamento (1–31)</Label>
+                    <Input className="mt-1" inputMode="numeric" placeholder="Ex.: 5" {...register('pay_day')} />
+                  </div>
+                </div>
+                {errorMsg ? <div className="text-sm text-destructive">{errorMsg}</div> : null}
+                <DialogFooter>
+                  <Button type="submit" disabled={isSubmitting}>
+                    Salvar colaborador
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </CardHeader>
         <CardContent>
-
-        <form onSubmit={handleSubmit(onCreateEmployee)} className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-          <div className="sm:col-span-2">
-            <Input placeholder="Nome" {...register('name')} />
-            {errors.name ? <div className="mt-1 text-xs text-destructive">{errors.name.message}</div> : null}
-          </div>
-          <div>
-            <MoneyInput label="Salário base (opcional)" {...register('base_salary')} />
-          </div>
-          <div>
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-muted-foreground">Função (opcional)</div>
-              <Input placeholder="Ex.: Vendedor" {...register('role_title')} />
-            </label>
-          </div>
-          <div>
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-muted-foreground">Dia do pagamento (1–31)</div>
-              <Input inputMode="numeric" placeholder="Ex.: 5" {...register('pay_day')} />
-            </label>
-          </div>
-          <div className="sm:col-span-3 flex items-center gap-2">
-            <Button type="submit" disabled={isSubmitting}>
-              Adicionar
-            </Button>
-            {errorMsg ? <div className="text-sm text-destructive">{errorMsg}</div> : null}
-          </div>
-        </form>
-
-        <div className="mt-4 space-y-2">
+        <div className="space-y-2">
           {employeesQuery.isLoading ? (
             <div className="text-sm text-muted-foreground">Carregando…</div>
           ) : employees.length === 0 ? (

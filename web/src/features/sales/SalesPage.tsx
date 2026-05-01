@@ -10,6 +10,18 @@ import { MoneyInput } from '../../components/inputs/MoneyInput'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
+import { Label } from '../../components/ui/label'
+import { Textarea } from '../../components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '../../components/ui/dialog'
+import { toast } from '../../components/toast/ToastHost'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
 import { parseNumberPtBr } from '../../lib/number'
 import type { ChangeEvent } from 'react'
@@ -19,6 +31,7 @@ import { createSale, deleteSale, fetchSales, type Sale } from './salesApi'
 const CreateSaleSchema = z.object({
   product_id: z.string().min(1, 'Selecione um produto'),
   sold_date: z.string().min(10),
+  qty_unit: z.enum(['kg', 'un']),
   qty: z.string().min(1),
   unit_price: z.string().min(1),
   unit_cost_snapshot: z.string().min(1),
@@ -58,6 +71,7 @@ export function SalesPage() {
       product_id: string
       sold_at: string
       qty: number
+      qty_unit: 'kg' | 'un'
       unit_price: number
       unit_cost_snapshot: number
       notes: string | null
@@ -83,20 +97,54 @@ export function SalesPage() {
     formState: { errors, isSubmitting },
   } = useForm<CreateSaleValues>({
     resolver: zodResolver(CreateSaleSchema),
-    defaultValues: { sold_date: new Date().toISOString().slice(0, 10) },
+    defaultValues: { sold_date: new Date().toISOString().slice(0, 10), qty_unit: 'kg' },
   })
 
   const selectedProductId = watch('product_id')
+  const qtyUnit = watch('qty_unit')
+  const unitPriceRaw = watch('unit_price')
 
   const selectedProduct = useMemo(() => {
     return (productsQuery.data ?? []).find((p) => p.id === selectedProductId) ?? null
   }, [productsQuery.data, selectedProductId])
 
+  function computeSuggestedCostSnapshot(productId: string, nextQtyUnit: 'kg' | 'un') {
+    const p = (productsQuery.data ?? []).find((x) => x.id === productId)
+    if (!p) return null
+
+    const costKg = p.latest_cost_kg?.cost ?? null
+    const costUn = p.latest_cost_un?.cost ?? null
+
+    if (nextQtyUnit === 'kg') {
+      if (costKg != null) return costKg
+      return null
+    }
+
+    if (costUn != null) return costUn
+    return null
+  }
+
+  function computeSuggestedUnitPrice(productId: string, nextQtyUnit: 'kg' | 'un') {
+    const p = (productsQuery.data ?? []).find((x) => x.id === productId)
+    if (!p) return null
+    const cost = computeSuggestedCostSnapshot(productId, nextQtyUnit)
+    if (cost == null) return null
+    const target = nextQtyUnit === 'kg' ? p.target_profit_kg : p.target_profit_un
+    if (target == null) return null
+    return cost + target
+  }
+
   function onPickProduct(productId: string) {
     setValue('product_id', productId, { shouldValidate: true })
-    const p = (productsQuery.data ?? []).find((x) => x.id === productId)
-    const latestCost = p?.latest_cost?.cost ?? null
-    if (latestCost != null) setValue('unit_cost_snapshot', String(latestCost).replace('.', ','), { shouldValidate: true })
+    const suggested = computeSuggestedCostSnapshot(productId, qtyUnit)
+    if (suggested != null) {
+      setValue('unit_cost_snapshot', String(suggested).replace('.', ','), { shouldValidate: true })
+    }
+
+    const suggestedPrice = computeSuggestedUnitPrice(productId, qtyUnit)
+    if ((!unitPriceRaw || !unitPriceRaw.trim()) && suggestedPrice != null) {
+      setValue('unit_price', String(suggestedPrice).replace('.', ','), { shouldValidate: true })
+    }
   }
 
   async function onSubmit(values: CreateSaleValues) {
@@ -114,13 +162,16 @@ export function SalesPage() {
         product_id: values.product_id,
         sold_at: new Date(`${values.sold_date}T12:00:00`).toISOString(),
         qty,
+        qty_unit: values.qty_unit,
         unit_price: unitPrice,
         unit_cost_snapshot: unitCost,
         notes: values.notes?.trim() ? values.notes.trim() : null,
       })
+      toast({ title: 'Venda salva', description: `${qty} ${values.qty_unit} • ${formatMoney(unitPrice)}` })
       reset({
         product_id: values.product_id,
         sold_date: values.sold_date,
+        qty_unit: values.qty_unit,
         qty: '',
         unit_price: '',
         unit_cost_snapshot: values.unit_cost_snapshot,
@@ -158,78 +209,126 @@ export function SalesPage() {
       />
 
       <Card>
-        <CardHeader>
-          <CardTitle>Nova venda</CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Cadastros</CardTitle>
+            <div className="text-sm text-muted-foreground">
+              Cadastre uma venda em poucos passos (produto → unidade → qtd → preço).
+            </div>
+          </div>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button>Novo lançamento</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Nova venda</DialogTitle>
+                <DialogDescription>
+                  Escolha o produto e a unidade. O sistema sugere custo e preço, e você ajusta se precisar.
+                </DialogDescription>
+              </DialogHeader>
+
+              <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 md:grid-cols-12">
+                <div className="md:col-span-5">
+                  <Label>Produto</Label>
+                  <select
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={selectedProductId ?? ''}
+                    onChange={(e) => onPickProduct(e.target.value)}
+                  >
+                    <option value="">Selecione…</option>
+                    {(productsQuery.data ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.product_id ? (
+                    <div className="mt-1 text-xs text-destructive">{errors.product_id.message}</div>
+                  ) : null}
+                </div>
+
+                <div className="md:col-span-3">
+                  <Label>Data</Label>
+                  <Input className="mt-1" type="date" {...register('sold_date')} />
+                </div>
+
+                <div className="md:col-span-2">
+                  <Label>Unidade</Label>
+                  <select
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    {...register('qty_unit')}
+                    onChange={(e) => {
+                      const next = e.target.value as 'kg' | 'un'
+                      setValue('qty_unit', next, { shouldValidate: true })
+                      if (selectedProductId) {
+                        const suggested = computeSuggestedCostSnapshot(selectedProductId, next)
+                        if (suggested != null) {
+                          setValue('unit_cost_snapshot', String(suggested).replace('.', ','), {
+                            shouldValidate: true,
+                          })
+                        }
+
+                        const suggestedPrice = computeSuggestedUnitPrice(selectedProductId, next)
+                        if ((!unitPriceRaw || !unitPriceRaw.trim()) && suggestedPrice != null) {
+                          setValue('unit_price', String(suggestedPrice).replace('.', ','), {
+                            shouldValidate: true,
+                          })
+                        }
+                      }
+                    }}
+                  >
+                    <option value="kg">kg</option>
+                    <option value="un">un</option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <Label>Qtd. ({qtyUnit})</Label>
+                  <Input className="mt-1" inputMode="decimal" placeholder="0" {...register('qty')} />
+                </div>
+
+                <div className="md:col-span-4">
+                  <MoneyInput label={`Preço por ${qtyUnit}`} {...register('unit_price')} />
+                  {selectedProduct ? (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Sugestão (custo + alvo):{' '}
+                      {(() => {
+                        const cost =
+                          qtyUnit === 'kg' ? selectedProduct.latest_cost_kg?.cost ?? null : selectedProduct.latest_cost_un?.cost ?? null
+                        const target = qtyUnit === 'kg' ? selectedProduct.target_profit_kg : selectedProduct.target_profit_un
+                        if (cost == null || target == null) return '—'
+                        return formatMoney(cost + target)
+                      })()}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="md:col-span-4">
+                  <MoneyInput label="Custo (snapshot)" {...register('unit_cost_snapshot')} />
+                  {!selectedProduct ? null : qtyUnit === 'kg' && !selectedProduct.latest_cost_kg?.cost ? (
+                    <div className="mt-1 text-xs text-destructive">Cadastre o custo em kg no produto.</div>
+                  ) : qtyUnit === 'un' && !selectedProduct.latest_cost_un?.cost ? (
+                    <div className="mt-1 text-xs text-destructive">Cadastre o custo em unidade no produto.</div>
+                  ) : null}
+                </div>
+
+                <div className="md:col-span-12">
+                  <Label>Observações</Label>
+                  <Textarea className="mt-1" placeholder="Cliente, NF, detalhes…" {...register('notes')} />
+                </div>
+
+                {errorMsg ? <div className="md:col-span-12 text-sm text-destructive">{errorMsg}</div> : null}
+
+                <DialogFooter className="md:col-span-12">
+                  <Button type="submit" disabled={isSubmitting}>
+                    Salvar venda
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </CardHeader>
-        <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 gap-3 md:grid-cols-10">
-          <div className="md:col-span-3">
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-muted-foreground">Produto</div>
-              <select
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={selectedProductId ?? ''}
-                onChange={(e) => onPickProduct(e.target.value)}
-              >
-                <option value="">Selecione…</option>
-                {(productsQuery.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.unit})
-                  </option>
-                ))}
-              </select>
-            </label>
-            {errors.product_id ? <div className="mt-1 text-xs text-destructive">{errors.product_id.message}</div> : null}
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-muted-foreground">Data</div>
-              <Input type="date" {...register('sold_date')} />
-            </label>
-          </div>
-
-          <div className="md:col-span-1">
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-muted-foreground">
-                Qtd. {selectedProduct?.unit ? `(${selectedProduct.unit})` : ''}
-              </div>
-              <Input inputMode="decimal" placeholder="0" {...register('qty')} />
-            </label>
-          </div>
-
-          <div className="md:col-span-2">
-            <MoneyInput label="Preço unitário" {...register('unit_price')} />
-          </div>
-
-          <div className="md:col-span-2">
-            <MoneyInput
-              label="Custo (snapshot)"
-              {...register('unit_cost_snapshot')}
-            />
-            {selectedProduct?.latest_cost?.cost != null ? (
-              <div className="mt-1 text-xs text-muted-foreground">
-                Último custo do produto: {formatMoney(selectedProduct.latest_cost.cost)}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="md:col-span-8">
-            <label className="block">
-              <div className="mb-1 text-sm font-medium text-muted-foreground">Observações (opcional)</div>
-              <Input placeholder="Ex.: Cliente X, NF, etc." {...register('notes')} />
-            </label>
-          </div>
-
-          <div className="md:col-span-2 flex items-end">
-            <Button type="submit" disabled={isSubmitting}>
-              Salvar venda
-            </Button>
-          </div>
-
-          {errorMsg ? <div className="md:col-span-10 text-sm text-destructive">{errorMsg}</div> : null}
-        </form>
-        </CardContent>
       </Card>
 
       <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
@@ -257,6 +356,7 @@ export function SalesPage() {
               <SaleRow
                 key={s.id}
                 sale={s}
+                product={(productsQuery.data ?? []).find((p) => p.id === s.product_id) ?? null}
                 onDelete={() => deleteMutation.mutate(s.id)}
                 isDeleting={deleteMutation.isPending}
               />
@@ -284,17 +384,30 @@ function Kpi({ title, value }: { title: string; value: string }) {
 
 function SaleRow({
   sale,
+  product,
   onDelete,
   isDeleting,
 }: {
   sale: Sale
+  product: { name: string; target_profit_kg: number | null; target_profit_un: number | null } | null
   onDelete: () => void
   isDeleting: boolean
 }) {
   const revenue = sale.qty * sale.unit_price
   const cost = sale.qty * sale.unit_cost_snapshot
   const profit = revenue - cost
-  const unit = sale.product?.unit
+  const unit = sale.qty_unit
+  const targetProfitPerUnit =
+    unit === 'kg' ? product?.target_profit_kg ?? null : unit === 'un' ? product?.target_profit_un ?? null : null
+  const targetProfitTotal = targetProfitPerUnit != null ? sale.qty * targetProfitPerUnit : null
+  const deltaVsTarget = targetProfitTotal != null ? profit - targetProfitTotal : null
+  const profitPerUnit = sale.unit_price - sale.unit_cost_snapshot
+  const deltaPerUnitVsTarget = targetProfitPerUnit != null ? profitPerUnit - targetProfitPerUnit : null
+
+  function centsLabel(value: number) {
+    const cents = Math.round(Math.abs(value) * 100)
+    return `${cents} centavos`
+  }
 
   return (
     <div className="grid grid-cols-1 gap-2 px-3 py-2 md:grid-cols-[1.2fr_0.6fr_0.6fr_0.6fr_0.6fr_auto] md:items-center">
@@ -316,9 +429,123 @@ function SaleRow({
         {revenue > 0 ? `${((profit / revenue) * 100).toFixed(2)}%` : '—'}
       </div>
       <div className="md:text-right">
-        <Button variant="ghost" onClick={onDelete} disabled={isDeleting}>
-          Excluir
-        </Button>
+        <div className="flex items-center justify-end gap-1">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="ghost">Detalhes</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Relatório da venda</DialogTitle>
+                <DialogDescription>
+                  {product?.name ?? sale.product?.name ?? 'Produto'} • {new Date(sale.sold_at).toISOString().slice(0, 10)}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="grid grid-cols-1 gap-3">
+                <div className="rounded-lg border border-border bg-card p-4 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Quantidade</span>
+                    <span className="font-medium">
+                      {sale.qty} {unit}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <span className="text-muted-foreground">Preço (digitado)</span>
+                    <span className="font-medium">{formatMoney(sale.unit_price)}</span>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <span className="text-muted-foreground">Custo (snapshot)</span>
+                    <span className="font-medium">{formatMoney(sale.unit_cost_snapshot)}</span>
+                  </div>
+                  <div className="mt-3 rounded-md bg-muted px-3 py-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Acima do custo (por {unit})</span>
+                      <span className="font-semibold">
+                        {formatMoney(profitPerUnit)} ({centsLabel(profitPerUnit)})
+                      </span>
+                    </div>
+                    <div className="mt-2 flex justify-between">
+                      <span className="text-muted-foreground">Acima do custo (total)</span>
+                      <span className="font-semibold">{formatMoney(profit)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-card p-4 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Receita</span>
+                    <span className="font-medium">{formatMoney(revenue)}</span>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <span className="text-muted-foreground">Custo total</span>
+                    <span className="font-medium">{formatMoney(cost)}</span>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <span className="text-muted-foreground">Lucro</span>
+                    <span className="font-semibold">{formatMoney(profit)}</span>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <span className="text-muted-foreground">Margem</span>
+                    <span className="font-medium">{revenue > 0 ? `${((profit / revenue) * 100).toFixed(2)}%` : '—'}</span>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-card p-4 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Alvo de lucro ({unit})</span>
+                    <span className="font-medium">{targetProfitPerUnit != null ? formatMoney(targetProfitPerUnit) : '—'}</span>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <span className="text-muted-foreground">Alvo total</span>
+                    <span className="font-medium">{targetProfitTotal != null ? formatMoney(targetProfitTotal) : '—'}</span>
+                  </div>
+                  <div className="mt-3 rounded-md bg-muted px-3 py-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Situação</span>
+                      {deltaPerUnitVsTarget == null ? (
+                        <span className="font-medium">Sem alvo cadastrado</span>
+                      ) : deltaPerUnitVsTarget >= 0 ? (
+                        <span className="font-semibold text-emerald-700">
+                          Atingiu • +{formatMoney(deltaPerUnitVsTarget)} por {unit} ({centsLabel(deltaPerUnitVsTarget)})
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-rose-700">
+                          Não atingiu • faltou {formatMoney(Math.abs(deltaPerUnitVsTarget))} por {unit} ({centsLabel(deltaPerUnitVsTarget)})
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2 flex justify-between">
+                      <span className="text-muted-foreground">Diferença vs alvo (total)</span>
+                      {deltaVsTarget == null ? (
+                        <span className="font-semibold">—</span>
+                      ) : deltaVsTarget >= 0 ? (
+                        <span className="font-semibold text-emerald-700">+{formatMoney(deltaVsTarget)}</span>
+                      ) : (
+                        <span className="font-semibold text-rose-700">-{formatMoney(Math.abs(deltaVsTarget))}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <span className="text-muted-foreground">Diferença (lucro - alvo)</span>
+                    <span className="font-semibold">
+                      {deltaVsTarget != null ? formatMoney(deltaVsTarget) : '—'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="destructive" onClick={onDelete} disabled={isDeleting}>
+                  Excluir venda
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Button variant="ghost" onClick={onDelete} disabled={isDeleting}>
+            Excluir
+          </Button>
+        </div>
       </div>
     </div>
   )

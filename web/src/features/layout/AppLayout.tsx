@@ -1,39 +1,56 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, Building2, Package, Receipt, Wallet } from 'lucide-react'
+import { BarChart3, Building2, LayoutDashboard, Package, Receipt, Wallet } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
 import { useAuth } from '../../app/auth/useAuth'
 import { supabase } from '../../app/supabaseClient'
+import { useEffect, useState } from 'react'
 
 function NavItem({
   to,
   label,
   icon: Icon,
+  collapsed,
 }: {
   to: string
   label: string
   icon: React.ComponentType<{ className?: string }>
+  collapsed: boolean
 }) {
   return (
     <NavLink
       to={to}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium',
+          'flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors',
+          collapsed ? 'justify-center' : 'gap-2',
           isActive
             ? 'bg-primary text-primary-foreground'
             : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
         )
       }
+      title={label}
     >
       <Icon className="h-4 w-4" />
-      {label}
+      {collapsed ? null : <span className="truncate">{label}</span>}
     </NavLink>
   )
 }
 
 export function AppLayout() {
   const { user } = useAuth()
+  // compact: sidebar fica estreita e expande no hover
+  const [compact, setCompact] = useState<boolean>(() => {
+    const raw = window.localStorage.getItem('cf.sidebar.compact')
+    return raw ? raw === '1' : true
+  })
+  const [isHoveringSidebar, setIsHoveringSidebar] = useState(false)
+
+  useEffect(() => {
+    window.localStorage.setItem('cf.sidebar.compact', compact ? '1' : '0')
+  }, [compact])
+
+  const isCollapsed = compact && !isHoveringSidebar
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -50,6 +67,13 @@ export function AppLayout() {
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden sm:block text-xs text-muted-foreground">{user?.email}</div>
+            <Button
+              variant="outline"
+              onClick={() => setCompact((v) => !v)}
+              title={compact ? 'Fixar menu expandido' : 'Ativar menu compacto (expande no hover)'}
+            >
+              {compact ? 'Fixar expandido' : 'Compacto'}
+            </Button>
             <Button variant="outline" onClick={() => supabase.auth.signOut()}>
               Sair
             </Button>
@@ -57,19 +81,34 @@ export function AppLayout() {
         </div>
       </header>
 
-      <div className="container-app grid grid-cols-1 gap-6 py-6 md:grid-cols-[220px_1fr]">
-        <aside className="rounded-lg border border-border bg-card p-2">
-          <nav className="space-y-1">
-            <NavItem to="/app/products" label="Produtos" icon={Package} />
-            <NavItem to="/app/sales" label="Vendas" icon={Receipt} />
-            <NavItem to="/app/payroll" label="Folha salarial" icon={Wallet} />
-            <NavItem to="/app/org" label="Organização" icon={Building2} />
-          </nav>
-        </aside>
+      <div className="container-app py-6">
+        <div
+          className={cn(
+            'grid grid-cols-1 gap-6',
+            isCollapsed ? 'md:grid-cols-[72px_1fr]' : 'md:grid-cols-[220px_1fr]',
+          )}
+        >
+          <aside
+            className={cn(
+              'md:sticky md:top-[88px] h-fit rounded-xl border border-border bg-card/70 backdrop-blur supports-[backdrop-filter]:bg-card/60 p-2',
+              isCollapsed ? 'px-1' : 'px-2',
+            )}
+            onMouseEnter={() => setIsHoveringSidebar(true)}
+            onMouseLeave={() => setIsHoveringSidebar(false)}
+          >
+            <nav className="space-y-1">
+              <NavItem to="/app/dashboard" label="Dashboard" icon={LayoutDashboard} collapsed={isCollapsed} />
+              <NavItem to="/app/products" label="Produtos" icon={Package} collapsed={isCollapsed} />
+              <NavItem to="/app/sales" label="Vendas" icon={Receipt} collapsed={isCollapsed} />
+              <NavItem to="/app/payroll" label="Folha salarial" icon={Wallet} collapsed={isCollapsed} />
+              <NavItem to="/app/org" label="Organização" icon={Building2} collapsed={isCollapsed} />
+            </nav>
+          </aside>
 
-        <main className="rounded-lg border border-border bg-card p-5">
-          <Outlet />
-        </main>
+          <main className="rounded-xl border border-border bg-card/70 backdrop-blur supports-[backdrop-filter]:bg-card/60 p-6 md:p-8 overflow-hidden">
+            <Outlet />
+          </main>
+        </div>
       </div>
     </div>
   )

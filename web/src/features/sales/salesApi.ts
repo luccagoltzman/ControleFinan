@@ -6,11 +6,12 @@ export type Sale = {
   product_id: string
   sold_at: string
   qty: number
+  qty_unit: 'kg' | 'un'
   unit_price: number
   unit_cost_snapshot: number
   notes: string | null
   created_at: string
-  product?: { name: string; unit: string } | null
+  product?: { name: string } | null
 }
 
 export async function fetchSales(input: {
@@ -21,7 +22,7 @@ export async function fetchSales(input: {
   let q = supabase
     .from('sales')
     .select(
-      'id, organization_id, product_id, sold_at, qty, unit_price, unit_cost_snapshot, notes, created_at, products ( name, unit )',
+      'id, organization_id, product_id, sold_at, qty, qty_unit, unit_price, unit_cost_snapshot, notes, created_at, products ( name )',
     )
     .eq('organization_id', input.organizationId)
     .order('sold_at', { ascending: false })
@@ -38,11 +39,12 @@ export async function fetchSales(input: {
     product_id: row.product_id as string,
     sold_at: row.sold_at as string,
     qty: row.qty as number,
+    qty_unit: (row.qty_unit as 'kg' | 'un') ?? 'kg',
     unit_price: row.unit_price as number,
     unit_cost_snapshot: row.unit_cost_snapshot as number,
     notes: (row.notes as string | null) ?? null,
     created_at: row.created_at as string,
-    product: (row as unknown as { products?: { name: string; unit: string } | null }).products ?? null,
+    product: (row as unknown as { products?: { name: string } | null }).products ?? null,
   }))
 }
 
@@ -51,6 +53,7 @@ export async function createSale(input: {
   product_id: string
   sold_at: string
   qty: number
+  qty_unit: 'kg' | 'un'
   unit_price: number
   unit_cost_snapshot: number
   notes: string | null
