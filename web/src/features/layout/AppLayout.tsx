@@ -32,7 +32,14 @@ function NavItem({
       title={label}
     >
       <Icon className="h-4 w-4" />
-      {collapsed ? null : <span className="truncate">{label}</span>}
+      <span
+        className={cn(
+          'truncate transition-[max-width,opacity] duration-200 ease-out',
+          collapsed ? 'max-w-0 opacity-0' : 'max-w-[160px] opacity-100',
+        )}
+      >
+        {label}
+      </span>
     </NavLink>
   )
 }
@@ -82,16 +89,12 @@ export function AppLayout() {
       </header>
 
       <div className="container-app py-6">
-        <div
-          className={cn(
-            'grid grid-cols-1 gap-6',
-            isCollapsed ? 'md:grid-cols-[72px_1fr]' : 'md:grid-cols-[220px_1fr]',
-          )}
-        >
+        <div className="flex flex-col gap-6 md:flex-row">
           <aside
             className={cn(
-              'md:sticky md:top-[88px] h-fit rounded-xl border border-border bg-card/70 backdrop-blur supports-[backdrop-filter]:bg-card/60 p-2',
-              isCollapsed ? 'px-1' : 'px-2',
+              'shrink-0 md:sticky md:top-[88px] h-fit rounded-xl border border-border bg-card/70 backdrop-blur supports-[backdrop-filter]:bg-card/60 p-2',
+              'transition-[width,padding] duration-200 ease-out',
+              isCollapsed ? 'md:w-[72px] px-1' : 'md:w-[220px] px-2',
             )}
             onMouseEnter={() => setIsHoveringSidebar(true)}
             onMouseLeave={() => setIsHoveringSidebar(false)}
@@ -105,7 +108,7 @@ export function AppLayout() {
             </nav>
           </aside>
 
-          <main className="rounded-xl border border-border bg-card/70 backdrop-blur supports-[backdrop-filter]:bg-card/60 p-6 md:p-8 overflow-hidden">
+          <main className="min-w-0 flex-1 rounded-xl border border-border bg-card/70 backdrop-blur supports-[backdrop-filter]:bg-card/60 p-6 md:p-8 overflow-hidden">
             <Outlet />
           </main>
         </div>
