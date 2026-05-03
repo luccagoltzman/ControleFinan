@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { startOfMonth, endOfMonth, format as formatDate } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Activity, DollarSign, Filter, Percent, PiggyBank, TrendingUp, Wallet } from 'lucide-react'
+import { Activity, DollarSign, Filter, MapPin, Percent, PiggyBank, TrendingUp, Wallet } from 'lucide-react'
 import {
   Area,
   AreaChart,
@@ -22,7 +22,10 @@ import { Label } from '../../components/ui/label'
 import { formatMoney } from '../../lib/money'
 import { useOrg } from '../../app/org/useOrg'
 import { fetchProducts } from '../products/productsApi'
+import { fetchRegions } from '../regions/regionsApi'
 import { fetchSales } from '../sales/salesApi'
+import { SalesRegionMap, type SalesRegionMarker } from './SalesRegionMap'
+import { BRAZIL_MAP_CENTER, suggestedAnchorForRegionName } from '../../lib/regionMapAnchors'
 
 function monthRange(monthYYYYMM: string) {
   const [y, m] = monthYYYYMM.split('-').map(Number)
@@ -54,6 +57,12 @@ export function DashboardPage() {
   const salesQuery = useQuery({
     queryKey: ['sales', { org: activeOrgId, month }],
     queryFn: () => fetchSales({ organizationId: activeOrgId!, fromIso, toIso }),
+    enabled: !!activeOrgId,
+  })
+
+  const regionsQuery = useQuery({
+    queryKey: ['regions', { org: activeOrgId }],
+    queryFn: () => fetchRegions(activeOrgId!),
     enabled: !!activeOrgId,
   })
 
@@ -142,11 +151,65 @@ export function DashboardPage() {
     return arr.sort((a, b) => b.revenue - a.revenue).slice(0, 8)
   }, [filteredSales, productsById])
 
+  const regionMapMarkers = useMemo((): SalesRegionMarker[] => {
+    const regionsList = regionsQuery.data ?? []
+    const byRegion = new Map<string, { revenue: number; profit: number; qty: number; orders: number }>()
+    for (const s of filteredSales) {
+      if (!s.region_id) continue
+      const row = byRegion.get(s.region_id) ?? { revenue: 0, profit: 0, qty: 0, orders: 0 }
+      const rev = s.qty * s.unit_price
+      const cost = s.qty * s.unit_cost_snapshot
+      row.revenue += rev
+      row.profit += rev - cost
+      row.qty += s.qty
+      row.orders += 1
+      byRegion.set(s.region_id, row)
+    }
+
+    let unknownIdx = 0
+    const markers: SalesRegionMarker[] = []
+    for (const [regionId, agg] of byRegion) {
+      const reg = regionsList.find((r) => r.id === regionId)
+      const saleName = filteredSales.find((x) => x.region_id === regionId)?.region?.name
+      const name = reg?.name ?? saleName ?? 'Região'
+      let lat = reg?.map_lat ?? null
+      let lng = reg?.map_lng ?? null
+      let usedFallback = false
+
+      if (lat == null || lng == null) {
+        const sug = suggestedAnchorForRegionName(name)
+        if (sug) {
+          lat = sug[0]
+          lng = sug[1]
+          usedFallback = true
+        } else {
+          const t = unknownIdx++ * 0.28
+          lat = BRAZIL_MAP_CENTER[0] + Math.sin(t) * 1.8
+          lng = BRAZIL_MAP_CENTER[1] + Math.cos(t) * 2.4
+          usedFallback = true
+        }
+      }
+
+      markers.push({
+        regionId,
+        name: reg?.name ?? name,
+        lat: lat!,
+        lng: lng!,
+        revenue: agg.revenue,
+        profit: agg.profit,
+        qty: agg.qty,
+        orderCount: agg.orders,
+        usedFallbackAnchor: usedFallback,
+      })
+    }
+    return markers.sort((a, b) => b.revenue - a.revenue)
+  }, [filteredSales, regionsQuery.data])
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        description="Visão geral de vendas, custo, lucro e atingimento de alvo."
+        description="Visão geral de vendas, custo, lucro, mapa por região e atingimento de alvo."
         right={
           <div className="flex flex-wrap items-end gap-3">
             <label className="block">
@@ -248,6 +311,52 @@ export function DashboardPage() {
           />
         </div>
       </section>
+
+      <Card className="border-border/60 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/50">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base md:text-lg">
+            <MapPin className="h-5 w-5 text-primary" aria-hidden />
+            Mapa regional (vendas filtradas)
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Cada ponto é uma região com vendas no mês. Tamanho ≈ receita; clique para ver pedidos, receita, lucro e
+            volume (quantidade). Cadastre coordenadas em Regiões para posicionar regiões com nomes fora do padrão de
+            estados.
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-4 lg:grid-cols-12">
+          <div className="min-h-[320px] lg:col-span-8">
+            <SalesRegionMap markers={regionMapMarkers} />
+          </div>
+          <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-muted/20 p-4 lg:col-span-4">
+            <div className="text-sm font-medium text-foreground">Resumo por região</div>
+            {regionMapMarkers.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem dados regionais no filtro atual.</p>
+            ) : (
+              <ul className="max-h-[320px] space-y-2 overflow-y-auto pr-1 text-sm">
+                {regionMapMarkers.map((m) => (
+                  <li
+                    key={m.regionId}
+                    className="rounded-lg border border-border/50 bg-card/80 px-3 py-2 shadow-sm"
+                  >
+                    <div className="font-medium leading-tight">{m.name}</div>
+                    <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      <span>Pedidos</span>
+                      <span className="text-right tabular-nums text-foreground">{m.orderCount}</span>
+                      <span>Receita</span>
+                      <span className="text-right tabular-nums text-foreground">{formatMoney(m.revenue)}</span>
+                      <span>Lucro</span>
+                      <span className="text-right tabular-nums text-foreground">{formatMoney(m.profit)}</span>
+                      <span>Volume</span>
+                      <span className="text-right tabular-nums text-foreground">{m.qty.toLocaleString('pt-BR')}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
         <Card className="xl:col-span-7 border-border/60 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/50">
