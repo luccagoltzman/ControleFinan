@@ -11,7 +11,9 @@ const membershipsQueryKey = ['org', 'memberships']
 async function fetchMemberships(): Promise<OrgMembership[]> {
   const { data, error } = await supabase
     .from('organization_members')
-    .select('organization_id, role, organizations ( id, name, default_commission_percent )')
+    .select(
+      'organization_id, role, organizations ( id, name, default_commission_percent, brand_color, logo_storage_path, branding_updated_at )',
+    )
     .order('created_at', { ascending: true })
 
   if (error) throw error
@@ -23,14 +25,27 @@ async function fetchMemberships(): Promise<OrgMembership[]> {
         ? (rawOrg[0] as { id?: string; name?: string } | undefined)
         : (rawOrg as { id?: string; name?: string } | null | undefined)
 
+    const o = org as
+      | {
+          id?: string
+          name?: string
+          default_commission_percent?: number | null
+          brand_color?: string | null
+          logo_storage_path?: string | null
+          branding_updated_at?: string
+        }
+      | undefined
+
     return {
       organization_id: row.organization_id as string,
       role: row.role as OrgMembership['role'],
       organization: {
-        id: org?.id ?? (row.organization_id as string),
-        name: org?.name ?? 'Organização',
-        default_commission_percent:
-          (org as { default_commission_percent?: number | null } | undefined)?.default_commission_percent ?? null,
+        id: o?.id ?? (row.organization_id as string),
+        name: o?.name ?? 'Organização',
+        default_commission_percent: o?.default_commission_percent ?? null,
+        brand_color: o?.brand_color ?? null,
+        logo_storage_path: o?.logo_storage_path ?? null,
+        branding_updated_at: (o?.branding_updated_at as string) ?? new Date(0).toISOString(),
       },
     }
   })
@@ -71,15 +86,22 @@ export function OrgProvider({ children }: PropsWithChildren) {
     await queryClient.refetchQueries({ queryKey: membershipsQueryKey, exact: true })
   }
 
+  const activeOrganization = useMemo(() => {
+    if (!activeOrgId) return null
+    const m = (membershipsQuery.data ?? []).find((x) => x.organization_id === activeOrgId)
+    return m?.organization ?? null
+  }, [activeOrgId, membershipsQuery.data])
+
   const value = useMemo(
     () => ({
       isLoading: membershipsQuery.isLoading,
       memberships: membershipsQuery.data ?? [],
       activeOrgId,
+      activeOrganization,
       setActiveOrgId,
       refresh,
     }),
-    [activeOrgId, membershipsQuery.data, membershipsQuery.isLoading],
+    [activeOrgId, activeOrganization, membershipsQuery.data, membershipsQuery.isLoading],
   )
 
   return <OrgContext value={value}>{children}</OrgContext>

@@ -4,7 +4,9 @@ import { Button } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
 import { useAuth } from '../../app/auth/useAuth'
 import { supabase } from '../../app/supabaseClient'
-import { useEffect, useState } from 'react'
+import { useOrg } from '../../app/org/useOrg'
+import { useEffect, useMemo, useState } from 'react'
+import { getOrgLogoPublicUrl, orgPrimaryCssVars } from '../../lib/orgBranding'
 
 function NavItem({
   to,
@@ -46,6 +48,24 @@ function NavItem({
 
 export function AppLayout() {
   const { user } = useAuth()
+  const { activeOrganization } = useOrg()
+
+  const brandStyle = useMemo(
+    () => orgPrimaryCssVars(activeOrganization?.brand_color ?? null),
+    [activeOrganization?.brand_color],
+  )
+
+  const headerLogoUrl = useMemo(() => {
+    if (!activeOrganization?.logo_storage_path) return null
+    const base = getOrgLogoPublicUrl(activeOrganization.logo_storage_path)
+    if (!base) return null
+    return `${base}?v=${encodeURIComponent(activeOrganization.branding_updated_at)}`
+  }, [
+    activeOrganization?.logo_storage_path,
+    activeOrganization?.branding_updated_at,
+  ])
+
+  const headerTitle = activeOrganization?.name ?? 'ControleFinan'
   // compact: sidebar fica estreita e expande no hover
   const [compact, setCompact] = useState<boolean>(() => {
     const raw = window.localStorage.getItem('cf.sidebar.compact')
@@ -60,15 +80,25 @@ export function AppLayout() {
   const isCollapsed = compact && !isHoveringSidebar
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="min-h-screen bg-muted/30" style={brandStyle}>
       <header className="border-b border-border bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
         <div className="container-app flex h-14 items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <BarChart3 className="h-5 w-5" />
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={
+                headerLogoUrl
+                  ? 'flex h-11 max-h-11 min-h-11 min-w-11 max-w-[240px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-background px-2 py-1.5 shadow-sm'
+                  : 'flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary text-primary-foreground ring-1 ring-border/60'
+              }
+            >
+              {headerLogoUrl ? (
+                <img src={headerLogoUrl} alt="" className="max-h-full max-w-full object-contain object-center" />
+              ) : (
+                <BarChart3 className="h-6 w-6 shrink-0" />
+              )}
             </div>
-            <div>
-              <div className="font-semibold leading-tight">ControleFinan</div>
+            <div className="min-w-0">
+              <div className="font-semibold leading-tight truncate">{headerTitle}</div>
               <div className="text-xs text-muted-foreground">Preços • Vendas • Folha</div>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import { PageHeader } from '../../components/PageHeader'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { supabase } from '../../app/supabaseClient'
@@ -10,6 +10,9 @@ import { toast } from '../../components/toast/ToastHost'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
+import { Label } from '../../components/ui/label'
+import { getOrgLogoPublicUrl, orgLogoBucket } from '../../lib/orgBranding'
+import { ImageIcon, Trash2, Upload } from 'lucide-react'
 
 const CreateOrgSchema = z.object({
   name: z.string().min(2, 'Informe um nome'),
@@ -17,19 +20,43 @@ const CreateOrgSchema = z.object({
 
 type CreateOrgValues = z.infer<typeof CreateOrgSchema>
 
+const DEFAULT_PICKER_COLOR = '#475569'
+
+function normalizeHexColor(raw: string): string | null {
+  const s = raw.trim()
+  if (/^#[0-9A-Fa-f]{6}$/.test(s)) return s
+  if (/^[0-9A-Fa-f]{6}$/.test(s)) return `#${s}`
+  return null
+}
+
 export function OrgPage() {
-  const { memberships, activeOrgId, setActiveOrgId, refresh, isLoading } = useOrg()
+  const { memberships, activeOrgId, activeOrganization, setActiveOrgId, refresh, isLoading } = useOrg()
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [commissionDraft, setCommissionDraft] = useState('')
   const [orgCommissionError, setOrgCommissionError] = useState<string | null>(null)
   const [savingCommission, setSavingCommission] = useState(false)
 
+  const [colorHexDraft, setColorHexDraft] = useState(DEFAULT_PICKER_COLOR)
+  const [brandError, setBrandError] = useState<string | null>(null)
+  const [savingBrandColor, setSavingBrandColor] = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
+  const logoFileInputRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     const m = memberships.find((x) => x.organization_id === activeOrgId)
     const v = m?.organization.default_commission_percent
     setCommissionDraft(v != null ? String(v).replace('.', ',') : '')
   }, [memberships, activeOrgId])
+
+  useEffect(() => {
+    const c = activeOrganization?.brand_color
+    if (c && normalizeHexColor(c)) {
+      setColorHexDraft(normalizeHexColor(c)!)
+    } else {
+      setColorHexDraft(DEFAULT_PICKER_COLOR)
+    }
+  }, [activeOrganization?.brand_color])
 
   const {
     register,
@@ -53,6 +80,112 @@ export function OrgPage() {
       setErrorMsg(err instanceof Error ? err.message : 'Erro ao criar organização')
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  async function onSaveBrandColor() {
+    if (!activeOrgId) return
+    setBrandError(null)
+    setSavingBrandColor(true)
+    try {
+      const normalized = normalizeHexColor(colorHexDraft)
+      if (!normalized) throw new Error('Cor inválida. Use formato #RRGGBB.')
+      const now = new Date().toISOString()
+      const { error } = await supabase
+        .from('organizations')
+        .update({ brand_color: normalized, branding_updated_at: now })
+        .eq('id', activeOrgId)
+      if (error) throw error
+      toast({ title: 'Cor da organização salva' })
+      await refresh()
+    } catch (err) {
+      setBrandError(err instanceof Error ? err.message : 'Erro ao salvar')
+    } finally {
+      setSavingBrandColor(false)
+    }
+  }
+
+  async function onClearBrandColor() {
+    if (!activeOrgId) return
+    setBrandError(null)
+    setSavingBrandColor(true)
+    try {
+      const now = new Date().toISOString()
+      const { error } = await supabase
+        .from('organizations')
+        .update({ brand_color: null, branding_updated_at: now })
+        .eq('id', activeOrgId)
+      if (error) throw error
+      setColorHexDraft(DEFAULT_PICKER_COLOR)
+      toast({ title: 'Cor removida — voltando ao tema padrão' })
+      await refresh()
+    } catch (err) {
+      setBrandError(err instanceof Error ? err.message : 'Erro ao salvar')
+    } finally {
+      setSavingBrandColor(false)
+    }
+  }
+
+  async function onUploadLogo(file: File) {
+    if (!activeOrgId || !activeOrganization) return
+    setBrandError(null)
+    setUploadingLogo(true)
+    try {
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+      if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
+        throw new Error('Use PNG, JPG ou WebP.')
+      }
+      if (file.size > 2 * 1024 * 1024) throw new Error('Arquivo maior que 2 MB.')
+
+      const path = `${activeOrgId}/logo.${ext}`
+      const prev = activeOrganization.logo_storage_path
+
+      const { error: upErr } = await supabase.storage.from(orgLogoBucket).upload(path, file, {
+        upsert: true,
+        contentType: file.type || `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+        cacheControl: '3600',
+      })
+      if (upErr) throw upErr
+
+      if (prev && prev !== path) {
+        await supabase.storage.from(orgLogoBucket).remove([prev])
+      }
+
+      const now = new Date().toISOString()
+      const { error: dbErr } = await supabase
+        .from('organizations')
+        .update({ logo_storage_path: path, branding_updated_at: now })
+        .eq('id', activeOrgId)
+      if (dbErr) throw dbErr
+
+      toast({ title: 'Logo atualizado' })
+      await refresh()
+    } catch (err) {
+      setBrandError(err instanceof Error ? err.message : 'Erro no envio do logo')
+    } finally {
+      setUploadingLogo(false)
+    }
+  }
+
+  async function onRemoveLogo() {
+    if (!activeOrgId || !activeOrganization?.logo_storage_path) return
+    setBrandError(null)
+    setUploadingLogo(true)
+    try {
+      const path = activeOrganization.logo_storage_path
+      await supabase.storage.from(orgLogoBucket).remove([path]).catch(() => undefined)
+      const now = new Date().toISOString()
+      const { error } = await supabase
+        .from('organizations')
+        .update({ logo_storage_path: null, branding_updated_at: now })
+        .eq('id', activeOrgId)
+      if (error) throw error
+      toast({ title: 'Logo removido' })
+      await refresh()
+    } catch (err) {
+      setBrandError(err instanceof Error ? err.message : 'Erro ao remover logo')
+    } finally {
+      setUploadingLogo(false)
     }
   }
 
@@ -149,6 +282,128 @@ export function OrgPage() {
           </CardContent>
         </Card>
       </div>
+
+      {activeOrgId ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Identidade visual</CardTitle>
+            <CardDescription>
+              Cor usada nos botões e destaques (tema), e logo no topo do sistema. Visível para todos os usuários desta
+              organização.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-8 max-w-2xl">
+            <div className="space-y-2">
+              <Label>Cor da marca</Label>
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="color"
+                  className="h-10 w-14 cursor-pointer rounded-md border border-input bg-background"
+                  value={normalizeHexColor(colorHexDraft) ?? DEFAULT_PICKER_COLOR}
+                  onChange={(e) => setColorHexDraft(e.target.value)}
+                  aria-label="Selecionar cor"
+                />
+                <Input
+                  className="max-w-[140px] font-mono text-sm"
+                  value={colorHexDraft}
+                  onChange={(e) => setColorHexDraft(e.target.value)}
+                  placeholder="#2563EB"
+                  spellCheck={false}
+                />
+                <Button type="button" onClick={onSaveBrandColor} disabled={savingBrandColor}>
+                  {savingBrandColor ? 'Salvando…' : 'Salvar cor'}
+                </Button>
+                <Button type="button" variant="outline" onClick={onClearBrandColor} disabled={savingBrandColor}>
+                  Usar tema padrão
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Cor atual no app: {activeOrganization?.brand_color ?? '(padrão ControleFinan)'}
+              </p>
+            </div>
+
+            <div className="space-y-3 border-t border-border/60 pt-6">
+              <div>
+                <Label className="text-base">Logo</Label>
+                <p className="mt-1.5 text-sm text-muted-foreground">
+                  Aparece no topo junto ao nome da organização. Formatos: PNG, JPG ou WebP (máx. 2 MB). A imagem é
+                  exibida inteira, sem cortar.
+                </p>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-border bg-muted/40 ring-1 ring-border/40">
+                <div className="border-b border-border/60 bg-muted/30 px-4 py-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pré-visualização</span>
+                </div>
+                <div className="flex min-h-[140px] items-center justify-center bg-gradient-to-b from-card to-muted/20 px-4 py-6 sm:min-h-[160px] sm:px-8 sm:py-8">
+                  {activeOrganization?.logo_storage_path ? (
+                    <img
+                      src={
+                        (getOrgLogoPublicUrl(activeOrganization.logo_storage_path) ?? '') +
+                        `?v=${encodeURIComponent(activeOrganization.branding_updated_at)}`
+                      }
+                      alt=""
+                      className="max-h-36 w-auto max-w-full object-contain object-center sm:max-h-40"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-3 text-center">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-dashed border-muted-foreground/25 bg-background/80">
+                        <ImageIcon className="h-7 w-7 text-muted-foreground/50" aria-hidden />
+                      </div>
+                      <p className="max-w-xs text-sm text-muted-foreground">
+                        Nenhuma imagem ainda. Use o botão abaixo para enviar o arquivo da sua marca.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <input
+                ref={logoFileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="sr-only"
+                tabIndex={-1}
+                disabled={uploadingLogo}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  e.target.value = ''
+                  if (f) void onUploadLogo(f)
+                }}
+              />
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  disabled={uploadingLogo}
+                  onClick={() => logoFileInputRef.current?.click()}
+                >
+                  <Upload className="mr-2 h-4 w-4" aria-hidden />
+                  {uploadingLogo ? 'Enviando…' : activeOrganization?.logo_storage_path ? 'Trocar imagem' : 'Enviar imagem'}
+                </Button>
+                {activeOrganization?.logo_storage_path ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    disabled={uploadingLogo}
+                    onClick={() => void onRemoveLogo()}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+                    Remover logo
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            {brandError ? (
+              <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {brandError}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {activeOrgId ? (
         <Card>
