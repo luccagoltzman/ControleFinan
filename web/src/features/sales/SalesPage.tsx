@@ -27,6 +27,7 @@ import { parseNumberPtBr } from '../../lib/number'
 import type { ChangeEvent } from 'react'
 import { fetchProducts } from '../products/productsApi'
 import { createSale, deleteSale, fetchSales, type Sale } from './salesApi'
+import { SaleAttachmentsSection } from './SaleAttachmentsSection'
 import { fetchRegions } from '../regions/regionsApi'
 
 const CreateSaleSchema = z.object({
@@ -417,6 +418,7 @@ function SaleRow({
   onDelete: () => void
   isDeleting: boolean
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const revenue = sale.qty * sale.unit_price
   const cost = sale.qty * sale.unit_cost_snapshot
   const profit = revenue - cost
@@ -455,11 +457,11 @@ function SaleRow({
       </div>
       <div className="md:text-right">
         <div className="flex items-center justify-end gap-1">
-          <Dialog>
+          <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
             <DialogTrigger asChild>
               <Button variant="ghost">Detalhes</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Relatório da venda</DialogTitle>
                 <DialogDescription>
@@ -559,6 +561,8 @@ function SaleRow({
                   </div>
                 </div>
               </div>
+
+              <SaleAttachmentsSection organizationId={sale.organization_id} saleId={sale.id} />
 
               <DialogFooter>
                 <Button variant="destructive" onClick={onDelete} disabled={isDeleting}>

@@ -1,4 +1,5 @@
 import { supabase } from '../../app/supabaseClient'
+import { removeStoragePaths } from './saleAttachmentsApi'
 
 export type Sale = {
   id: string
@@ -68,6 +69,16 @@ export async function createSale(input: {
 }
 
 export async function deleteSale(input: { organization_id: string; id: string }) {
+  const { data: pathsRows, error: pathsErr } = await supabase
+    .from('sale_attachments')
+    .select('storage_path')
+    .eq('organization_id', input.organization_id)
+    .eq('sale_id', input.id)
+
+  if (pathsErr) throw pathsErr
+  const paths = (pathsRows ?? []).map((r) => r.storage_path as string).filter(Boolean)
+  if (paths.length) await removeStoragePaths(paths)
+
   const { error } = await supabase
     .from('sales')
     .delete()
