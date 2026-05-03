@@ -219,30 +219,34 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <Kpi
-          title="Receita"
-          value={formatMoney(totals.revenue)}
-          icon={<DollarSign className="h-4 w-4" />}
-          accent="primary"
-        />
-        <Kpi title="Custo" value={formatMoney(totals.cost)} icon={<PiggyBank className="h-4 w-4" />} accent="muted" />
-        <Kpi title="Lucro" value={formatMoney(totals.profit)} icon={<TrendingUp className="h-4 w-4" />} accent="good" />
-        <Kpi title="Margem" value={`${(totals.margin * 100).toFixed(2)}%`} icon={<Percent className="h-4 w-4" />} accent="muted" />
-        <Kpi
-          title="Comissão"
-          value={formatMoney(totals.commissionTotal)}
-          subtitle="Sobre receita do pedido"
-          icon={<Wallet className="h-4 w-4" />}
-          accent="primary"
-        />
-        <Kpi
-          title="Alvo (total)"
-          value={totals.withTarget > 0 ? formatMoney(totals.targetTotal) : '—'}
-          subtitle={totals.withTarget > 0 ? `${totals.hitTarget}/${totals.withTarget} vendas atingiram` : 'Sem alvo cadastrado'}
-          icon={<Activity className="h-4 w-4" />}
-          accent={totals.withTarget > 0 ? (totals.hitTarget / totals.withTarget >= 0.5 ? 'good' : 'warn') : 'muted'}
-        />
+      <section className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Kpi
+            title="Receita"
+            value={formatMoney(totals.revenue)}
+            icon={<DollarSign className="h-4 w-4" />}
+            accent="primary"
+          />
+          <Kpi title="Custo" value={formatMoney(totals.cost)} icon={<PiggyBank className="h-4 w-4" />} accent="muted" />
+          <Kpi title="Lucro" value={formatMoney(totals.profit)} icon={<TrendingUp className="h-4 w-4" />} accent="good" />
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Kpi title="Margem" value={`${(totals.margin * 100).toFixed(2)}%`} icon={<Percent className="h-4 w-4" />} accent="muted" />
+          <Kpi
+            title="Comissão"
+            value={formatMoney(totals.commissionTotal)}
+            subtitle="Sobre receita do pedido"
+            icon={<Wallet className="h-4 w-4" />}
+            accent="primary"
+          />
+          <Kpi
+            title="Alvo (total)"
+            value={totals.withTarget > 0 ? formatMoney(totals.targetTotal) : '—'}
+            subtitle={totals.withTarget > 0 ? `${totals.hitTarget}/${totals.withTarget} vendas atingiram` : 'Sem alvo cadastrado'}
+            icon={<Activity className="h-4 w-4" />}
+            accent={totals.withTarget > 0 ? (totals.hitTarget / totals.withTarget >= 0.5 ? 'good' : 'warn') : 'muted'}
+          />
+        </div>
       </section>
 
       <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
