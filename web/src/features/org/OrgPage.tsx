@@ -1,10 +1,12 @@
 import { PageHeader } from '../../components/PageHeader'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { supabase } from '../../app/supabaseClient'
 import { useOrg } from '../../app/org/useOrg'
+import { parseNumberPtBr } from '../../lib/number'
+import { toast } from '../../components/toast/ToastHost'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -19,6 +21,15 @@ export function OrgPage() {
   const { memberships, activeOrgId, setActiveOrgId, refresh, isLoading } = useOrg()
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
+  const [commissionDraft, setCommissionDraft] = useState('')
+  const [orgCommissionError, setOrgCommissionError] = useState<string | null>(null)
+  const [savingCommission, setSavingCommission] = useState(false)
+
+  useEffect(() => {
+    const m = memberships.find((x) => x.organization_id === activeOrgId)
+    const v = m?.organization.default_commission_percent
+    setCommissionDraft(v != null ? String(v).replace('.', ',') : '')
+  }, [memberships, activeOrgId])
 
   const {
     register,
@@ -42,6 +53,33 @@ export function OrgPage() {
       setErrorMsg(err instanceof Error ? err.message : 'Erro ao criar organização')
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  async function onSaveOrgCommission() {
+    if (!activeOrgId) return
+    setOrgCommissionError(null)
+    setSavingCommission(true)
+    try {
+      const raw = commissionDraft.trim()
+      let value: number | null = null
+      if (raw) {
+        const n = parseNumberPtBr(raw)
+        if (n == null) throw new Error('Percentual inválido')
+        if (n < 0 || n > 100) throw new Error('Use um valor entre 0 e 100')
+        value = n
+      }
+      const { error } = await supabase
+        .from('organizations')
+        .update({ default_commission_percent: value })
+        .eq('id', activeOrgId)
+      if (error) throw error
+      toast({ title: 'Comissão padrão salva' })
+      await refresh()
+    } catch (err) {
+      setOrgCommissionError(err instanceof Error ? err.message : 'Erro ao salvar')
+    } finally {
+      setSavingCommission(false)
     }
   }
 
@@ -111,6 +149,40 @@ export function OrgPage() {
           </CardContent>
         </Card>
       </div>
+
+      {activeOrgId ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Comissão do representante</CardTitle>
+            <CardDescription>
+              Percentual sobre o valor total de cada pedido (quantidade × preço de venda). Você pode definir um valor
+              diferente por produto na edição do produto.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="max-w-md space-y-3">
+            <div>
+              <div className="text-sm font-medium">% padrão da organização</div>
+              <Input
+                className="mt-1"
+                placeholder="Ex.: 3,5 ou vazio"
+                value={commissionDraft}
+                onChange={(e) => setCommissionDraft(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Deixe vazio se não houver comissão sobre o pedido (ou cadastre depois). Produtos podem ter um % próprio.
+              </p>
+            </div>
+            {orgCommissionError ? (
+              <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {orgCommissionError}
+              </div>
+            ) : null}
+            <Button type="button" onClick={onSaveOrgCommission} disabled={savingCommission}>
+              {savingCommission ? 'Salvando…' : 'Salvar comissão padrão'}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   )
 }

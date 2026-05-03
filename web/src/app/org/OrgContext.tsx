@@ -5,6 +5,8 @@ export type OrgRole = 'owner' | 'admin' | 'member'
 export type OrgSummary = {
   id: string
   name: string
+  /** % sobre a receita do pedido (qtd × preço); opcional no cadastro */
+  default_commission_percent: number | null
 }
 
 export type OrgMembership = {

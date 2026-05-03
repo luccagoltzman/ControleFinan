@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { startOfMonth, endOfMonth, format as formatDate } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { Activity, DollarSign, Filter, Percent, PiggyBank, TrendingUp } from 'lucide-react'
+import { Activity, DollarSign, Filter, Percent, PiggyBank, TrendingUp, Wallet } from 'lucide-react'
 import {
   Area,
   AreaChart,
@@ -92,14 +92,16 @@ export function DashboardPage() {
       if (saleProfit >= t) hitTarget += 1
     }
 
-    return { revenue, cost, profit, margin, targetTotal, withTarget, hitTarget }
+    const commissionTotal = filteredSales.reduce((acc, s) => acc + s.commission_amount, 0)
+
+    return { revenue, cost, profit, margin, targetTotal, withTarget, hitTarget, commissionTotal }
   }, [filteredSales, productsById])
 
   const daily = useMemo(() => {
-    const byDay = new Map<string, { day: string; revenue: number; cost: number; profit: number }>()
+    const byDay = new Map<string, { revenue: number; cost: number; profit: number }>()
     for (const s of filteredSales) {
       const day = new Date(s.sold_at).toISOString().slice(0, 10)
-      const row = byDay.get(day) ?? { day, revenue: 0, cost: 0, profit: 0 }
+      const row = byDay.get(day) ?? { revenue: 0, cost: 0, profit: 0 }
       const rev = s.qty * s.unit_price
       const c = s.qty * s.unit_cost_snapshot
       row.revenue += rev
@@ -107,10 +109,22 @@ export function DashboardPage() {
       row.profit += rev - c
       byDay.set(day, row)
     }
-    return [...byDay.values()]
-      .sort((a, b) => a.day.localeCompare(b.day))
-      .map((x) => ({ ...x, label: formatShort(x.day) }))
-  }, [filteredSales])
+
+    const [y, mo] = month.split('-').map(Number)
+    const lastDay = new Date(Date.UTC(y!, mo!, 0)).getUTCDate()
+    const out: Array<{ day: string; label: string; dayNum: number; revenue: number; cost: number; profit: number }> = []
+    for (let d = 1; d <= lastDay; d++) {
+      const day = new Date(Date.UTC(y!, mo! - 1, d)).toISOString().slice(0, 10)
+      const agg = byDay.get(day) ?? { revenue: 0, cost: 0, profit: 0 }
+      out.push({
+        day,
+        label: formatShort(day),
+        dayNum: d,
+        ...agg,
+      })
+    }
+    return out
+  }, [filteredSales, month])
 
   const byProduct = useMemo(() => {
     const by = new Map<string, { productId: string; name: string; revenue: number; profit: number; margin: number }>()
@@ -205,7 +219,7 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-5">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
         <Kpi
           title="Receita"
           value={formatMoney(totals.revenue)}
@@ -215,6 +229,13 @@ export function DashboardPage() {
         <Kpi title="Custo" value={formatMoney(totals.cost)} icon={<PiggyBank className="h-4 w-4" />} accent="muted" />
         <Kpi title="Lucro" value={formatMoney(totals.profit)} icon={<TrendingUp className="h-4 w-4" />} accent="good" />
         <Kpi title="Margem" value={`${(totals.margin * 100).toFixed(2)}%`} icon={<Percent className="h-4 w-4" />} accent="muted" />
+        <Kpi
+          title="Comissão"
+          value={formatMoney(totals.commissionTotal)}
+          subtitle="Sobre receita do pedido"
+          icon={<Wallet className="h-4 w-4" />}
+          accent="primary"
+        />
         <Kpi
           title="Alvo (total)"
           value={totals.withTarget > 0 ? formatMoney(totals.targetTotal) : '—'}
@@ -227,16 +248,16 @@ export function DashboardPage() {
       <section className="grid grid-cols-1 gap-3 xl:grid-cols-12">
         <Card className="xl:col-span-7 border-border/60 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/50">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center justify-between">
+            <CardTitle className="flex flex-wrap items-center justify-between gap-2">
               <span>Tendência do mês</span>
               <span className="text-xs font-medium text-muted-foreground">
-                {filteredSales.length} vendas filtradas
+                {daily.length} dias • {filteredSales.length} vendas filtradas
               </span>
             </CardTitle>
           </CardHeader>
           <CardContent className="h-[420px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={daily} margin={{ left: 12, right: 16, top: 16, bottom: 12 }}>
+              <AreaChart data={daily} margin={{ left: 12, right: 16, top: 16, bottom: 28 }}>
                 <defs>
                   <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
@@ -248,9 +269,20 @@ export function DashboardPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.35} />
-                <XAxis dataKey="label" tickMargin={10} />
+                <XAxis
+                  dataKey="dayNum"
+                  tickMargin={8}
+                  tick={{ fontSize: 11 }}
+                  label={{ value: 'Dia do mês', position: 'insideBottom', offset: -4, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                  interval={0}
+                  minTickGap={6}
+                />
                 <YAxis tickFormatter={(v) => `R$ ${Number(v).toFixed(0)}`} width={78} />
                 <Tooltip
+                  labelFormatter={(_, payload) => {
+                    const p = payload?.[0]?.payload as { day?: string; label?: string } | undefined
+                    return p?.label ?? p?.day ?? ''
+                  }}
                   formatter={(v: any) => formatMoney(Number(v))}
                   contentStyle={{
                     borderRadius: 12,
@@ -259,8 +291,28 @@ export function DashboardPage() {
                   }}
                 />
                 <Legend />
-                <Area type="monotone" dataKey="revenue" name="Receita" stroke="hsl(var(--primary))" fill="url(#rev)" />
-                <Area type="monotone" dataKey="profit" name="Lucro" stroke="hsl(142 76% 36%)" fill="url(#profit)" />
+                <Area
+                  type="linear"
+                  dataKey="revenue"
+                  name="Receita"
+                  stroke="hsl(var(--primary))"
+                  strokeWidth={2}
+                  fill="url(#rev)"
+                  dot={{ r: 3.5, strokeWidth: 2, stroke: 'hsl(var(--primary))', fill: 'hsl(var(--background))' }}
+                  activeDot={{ r: 6, strokeWidth: 2 }}
+                  isAnimationActive={false}
+                />
+                <Area
+                  type="linear"
+                  dataKey="profit"
+                  name="Lucro"
+                  stroke="hsl(142 76% 36%)"
+                  strokeWidth={2}
+                  fill="url(#profit)"
+                  dot={{ r: 3.5, strokeWidth: 2, stroke: 'hsl(142 76% 36%)', fill: 'hsl(var(--background))' }}
+                  activeDot={{ r: 6, strokeWidth: 2 }}
+                  isAnimationActive={false}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
@@ -301,7 +353,7 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="overflow-auto rounded-md border border-border">
-              <table className="min-w-[900px] w-full text-sm">
+              <table className="min-w-[1020px] w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr className="text-left">
                     <th className="p-2">Data</th>
@@ -311,6 +363,7 @@ export function DashboardPage() {
                     <th className="p-2 text-right">Preço</th>
                     <th className="p-2 text-right">Custo</th>
                     <th className="p-2 text-right">Lucro</th>
+                    <th className="p-2 text-right">Comissão</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -325,6 +378,7 @@ export function DashboardPage() {
                         <td className="p-2 text-right">{formatMoney(s.unit_price)}</td>
                         <td className="p-2 text-right">{formatMoney(s.unit_cost_snapshot)}</td>
                         <td className="p-2 text-right">{formatMoney(profit)}</td>
+                        <td className="p-2 text-right">{formatMoney(s.commission_amount)}</td>
                       </tr>
                     )
                   })}

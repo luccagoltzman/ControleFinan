@@ -11,6 +11,9 @@ export type Sale = {
   qty_unit: 'kg' | 'un'
   unit_price: number
   unit_cost_snapshot: number
+  /** % sobre receita (pedido) usado no lançamento */
+  commission_percent_snapshot: number
+  commission_amount: number
   notes: string | null
   created_at: string
   product?: { name: string } | null
@@ -25,7 +28,7 @@ export async function fetchSales(input: {
   let q = supabase
     .from('sales')
     .select(
-      'id, organization_id, product_id, region_id, sold_at, qty, qty_unit, unit_price, unit_cost_snapshot, notes, created_at, products ( name ), regions ( name )',
+      'id, organization_id, product_id, region_id, sold_at, qty, qty_unit, unit_price, unit_cost_snapshot, commission_percent_snapshot, commission_amount, notes, created_at, products ( name ), regions ( name )',
     )
     .eq('organization_id', input.organizationId)
     .order('sold_at', { ascending: false })
@@ -46,6 +49,8 @@ export async function fetchSales(input: {
     qty_unit: (row.qty_unit as 'kg' | 'un') ?? 'kg',
     unit_price: row.unit_price as number,
     unit_cost_snapshot: row.unit_cost_snapshot as number,
+    commission_percent_snapshot: Number(row.commission_percent_snapshot ?? 0),
+    commission_amount: Number(row.commission_amount ?? 0),
     notes: (row.notes as string | null) ?? null,
     created_at: row.created_at as string,
     product: (row as unknown as { products?: { name: string } | null }).products ?? null,
@@ -62,6 +67,8 @@ export async function createSale(input: {
   qty_unit: 'kg' | 'un'
   unit_price: number
   unit_cost_snapshot: number
+  commission_percent_snapshot: number
+  commission_amount: number
   notes: string | null
 }) {
   const { error } = await supabase.from('sales').insert(input)

@@ -25,7 +25,7 @@ import { toast } from '../../components/toast/ToastHost'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
 import { parseNumberPtBr } from '../../lib/number'
 import type { ChangeEvent } from 'react'
-import { fetchProducts } from '../products/productsApi'
+import { fetchProducts, type Product } from '../products/productsApi'
 import { createSale, deleteSale, fetchSales, type Sale } from './salesApi'
 import { SaleAttachmentsSection } from './SaleAttachmentsSection'
 import { fetchRegions } from '../regions/regionsApi'
@@ -43,6 +43,12 @@ const CreateSaleSchema = z.object({
 
 type CreateSaleValues = z.infer<typeof CreateSaleSchema>
 
+function effectiveCommissionPercent(product: Product | null, orgDefault: number | null): number {
+  if (!product) return 0
+  if (product.commission_percent != null) return product.commission_percent
+  return orgDefault ?? 0
+}
+
 function monthRange(monthYYYYMM: string) {
   const [y, m] = monthYYYYMM.split('-').map(Number)
   const from = new Date(Date.UTC(y!, (m! - 1)!, 1, 0, 0, 0))
@@ -51,11 +57,16 @@ function monthRange(monthYYYYMM: string) {
 }
 
 export function SalesPage() {
-  const { activeOrgId } = useOrg()
+  const { activeOrgId, memberships } = useOrg()
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const { fromIso, toIso } = useMemo(() => monthRange(month), [month])
+
+  const orgDefaultCommission = useMemo(() => {
+    const m = memberships.find((x) => x.organization_id === activeOrgId)
+    return m?.organization.default_commission_percent ?? null
+  }, [memberships, activeOrgId])
 
   const productsQuery = useQuery({
     queryKey: ['products', { org: activeOrgId }],
@@ -84,6 +95,8 @@ export function SalesPage() {
       qty_unit: 'kg' | 'un'
       unit_price: number
       unit_cost_snapshot: number
+      commission_percent_snapshot: number
+      commission_amount: number
       notes: string | null
     }) => createSale({ organization_id: activeOrgId!, ...input }),
     onSuccess: async () => {
@@ -107,12 +120,13 @@ export function SalesPage() {
     formState: { errors, isSubmitting },
   } = useForm<CreateSaleValues>({
     resolver: zodResolver(CreateSaleSchema),
-    defaultValues: { sold_date: new Date().toISOString().slice(0, 10), qty_unit: 'kg' },
+    defaultValues: { sold_date: new Date().toISOString().slice(0, 10), qty_unit: 'kg', region_id: '' },
   })
 
   const selectedProductId = watch('product_id')
   const qtyUnit = watch('qty_unit')
   const unitPriceRaw = watch('unit_price')
+  const qtyRaw = watch('qty')
 
   const selectedProduct = useMemo(() => {
     return (productsQuery.data ?? []).find((p) => p.id === selectedProductId) ?? null
@@ -167,6 +181,10 @@ export function SalesPage() {
     if (unitPrice == null) return setErrorMsg('Preço unitário inválido')
     if (unitCost == null) return setErrorMsg('Custo (snapshot) inválido')
 
+    const revenue = qty * unitPrice
+    const commissionPct = effectiveCommissionPercent(selectedProduct, orgDefaultCommission)
+    const commissionAmount = Math.round((revenue * commissionPct) / 100 * 100) / 100
+
     try {
       await createMutation.mutateAsync({
         region_id: values.region_id?.trim() ? values.region_id.trim() : null,
@@ -176,10 +194,16 @@ export function SalesPage() {
         qty_unit: values.qty_unit,
         unit_price: unitPrice,
         unit_cost_snapshot: unitCost,
+        commission_percent_snapshot: commissionPct,
+        commission_amount: commissionAmount,
         notes: values.notes?.trim() ? values.notes.trim() : null,
       })
-      toast({ title: 'Venda salva', description: `${qty} ${values.qty_unit} • ${formatMoney(unitPrice)}` })
+      toast({
+        title: 'Venda salva',
+        description: `${qty} ${values.qty_unit} • ${formatMoney(unitPrice)} • comissão ${formatMoney(commissionAmount)} (${commissionPct.toFixed(2)}%)`,
+      })
       reset({
+        region_id: values.region_id?.trim() ?? '',
         product_id: values.product_id,
         sold_date: values.sold_date,
         qty_unit: values.qty_unit,
@@ -199,14 +223,15 @@ export function SalesPage() {
     const cost = sales.reduce((acc, s) => acc + s.qty * s.unit_cost_snapshot, 0)
     const profit = revenue - cost
     const margin = revenue > 0 ? profit / revenue : 0
-    return { revenue, cost, profit, margin }
+    const commission = sales.reduce((acc, s) => acc + s.commission_amount, 0)
+    return { revenue, cost, profit, margin, commission }
   }, [salesQuery.data])
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Vendas"
-        description="Registre vendas e acompanhe faturamento e lucro bruto (com snapshot de custo)."
+        description="Registre vendas, lucro acima do custo e comissão sobre o pedido (receita = qtd × preço)."
         right={
           <label className="block">
             <div className="mb-1 text-xs font-medium text-muted-foreground">Mês</div>
@@ -338,6 +363,38 @@ export function SalesPage() {
                   ) : null}
                 </div>
 
+                {selectedProduct ? (
+                  <div className="md:col-span-12 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                    <div className="font-medium">Comissão (estimativa)</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      % aplicado: {effectiveCommissionPercent(selectedProduct, orgDefaultCommission).toFixed(2).replace('.', ',')}%
+                      {selectedProduct.commission_percent != null
+                        ? ' (definido no produto)'
+                        : ' (padrão da organização)'}
+                    </div>
+                    {(() => {
+                      const q = parseNumberPtBr(qtyRaw ?? '')
+                      const p = parseMoneyPtBr(unitPriceRaw ?? '')
+                      if (q == null || p == null || q <= 0) {
+                        return (
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Informe quantidade e preço para ver o valor da comissão.
+                          </div>
+                        )
+                      }
+                      const rev = q * p
+                      const pct = effectiveCommissionPercent(selectedProduct, orgDefaultCommission)
+                      const comm = Math.round((rev * pct) / 100 * 100) / 100
+                      return (
+                        <div className="mt-2 space-y-0.5">
+                          <div>Receita do pedido: {formatMoney(rev)}</div>
+                          <div className="font-semibold text-foreground">Comissão estimada: {formatMoney(comm)}</div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                ) : null}
+
                 <div className="md:col-span-12">
                   <Label>Observações</Label>
                   <Textarea className="mt-1" placeholder="Cliente, NF, detalhes…" {...register('notes')} />
@@ -356,10 +413,11 @@ export function SalesPage() {
         </CardHeader>
       </Card>
 
-      <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi title="Faturamento" value={formatMoney(totals.revenue)} />
         <Kpi title="Custo (snapshot)" value={formatMoney(totals.cost)} />
         <Kpi title="Lucro bruto" value={formatMoney(totals.profit)} />
+        <Kpi title="Comissão" value={formatMoney(totals.commission)} />
         <Kpi title="Margem" value={`${(totals.margin * 100).toFixed(2)}%`} />
       </section>
 
@@ -436,7 +494,7 @@ function SaleRow({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-2 px-3 py-2 md:grid-cols-[1.2fr_0.6fr_0.6fr_0.6fr_0.6fr_auto] md:items-center">
+    <div className="grid grid-cols-1 gap-2 px-3 py-2 md:grid-cols-[1.1fr_0.5fr_0.5fr_0.5fr_0.5fr_0.5fr_auto] md:items-center">
       <div>
         <div className="text-sm font-medium text-slate-900">
           {sale.product?.name ?? 'Produto'} • {new Date(sale.sold_at).toISOString().slice(0, 10)}
@@ -452,6 +510,7 @@ function SaleRow({
       <div className="text-sm text-slate-900">Receita {formatMoney(revenue)}</div>
       <div className="text-sm text-slate-900">Custo {formatMoney(cost)}</div>
       <div className="text-sm font-medium text-slate-900">Lucro {formatMoney(profit)}</div>
+      <div className="text-sm text-slate-900">Com. {formatMoney(sale.commission_amount)}</div>
       <div className="text-sm text-slate-700">
         {revenue > 0 ? `${((profit / revenue) * 100).toFixed(2)}%` : '—'}
       </div>
@@ -516,6 +575,20 @@ function SaleRow({
                     <span className="text-muted-foreground">Margem</span>
                     <span className="font-medium">{revenue > 0 ? `${((profit / revenue) * 100).toFixed(2)}%` : '—'}</span>
                   </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-card p-4 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">% comissão (no lançamento)</span>
+                    <span className="font-medium">{sale.commission_percent_snapshot.toFixed(2).replace('.', ',')}%</span>
+                  </div>
+                  <div className="mt-2 flex justify-between">
+                    <span className="text-muted-foreground">Valor da comissão</span>
+                    <span className="font-semibold">{formatMoney(sale.commission_amount)}</span>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Sobre a receita do pedido (quantidade × preço). Configurável em Organização e por produto.
+                  </p>
                 </div>
 
                 <div className="rounded-lg border border-border bg-card p-4 text-sm">

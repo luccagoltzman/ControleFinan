@@ -22,6 +22,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs'
 import { toast } from '../../components/toast/ToastHost'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
+import { parseNumberPtBr } from '../../lib/number'
 import type { ChangeEvent } from 'react'
 import {
   addCost,
@@ -227,8 +228,13 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
   const costUn = product.latest_cost_un?.cost ?? null
 
   const updateProductMutation = useMutation({
-    mutationFn: (input: { name: string; unit: string; weight_per_unit_kg: number | null; is_active: boolean }) =>
-      updateProduct({ id: product.id, organization_id: organizationId, ...input }),
+    mutationFn: (input: {
+      name: string
+      unit: string
+      weight_per_unit_kg: number | null
+      is_active: boolean
+      commission_percent: number | null
+    }) => updateProduct({ id: product.id, organization_id: organizationId, ...input }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['products'] })
       toast({ title: 'Produto atualizado' })
@@ -403,6 +409,7 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
                             unit: product.unit,
                             weight_per_unit_kg: product.weight_per_unit_kg,
                             is_active: product.is_active,
+                            commission_percent: product.commission_percent,
                           })
                         }
                       />
@@ -418,6 +425,7 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
                             unit: e.target.value,
                             weight_per_unit_kg: product.weight_per_unit_kg,
                             is_active: product.is_active,
+                            commission_percent: product.commission_percent,
                           })
                         }
                       />
@@ -432,11 +440,47 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
                             unit: product.unit,
                             weight_per_unit_kg: product.weight_per_unit_kg,
                             is_active: e.target.checked,
+                            commission_percent: product.commission_percent,
                           })
                         }
                       />
                       Ativo
                     </label>
+                    <div>
+                      <Label className="text-muted-foreground">Comissão % (opcional)</Label>
+                      <Input
+                        className="mt-1"
+                        placeholder="Vazio = usa o padrão da organização"
+                        key={`comm-${product.id}-${product.commission_percent ?? 'null'}`}
+                        defaultValue={
+                          product.commission_percent != null ? String(product.commission_percent).replace('.', ',') : ''
+                        }
+                        onBlur={(e: ChangeEvent<HTMLInputElement>) => {
+                          const raw = e.target.value.trim()
+                          let next: number | null = null
+                          if (raw) {
+                            const n = parseNumberPtBr(raw)
+                            if (n == null || n < 0 || n > 100) {
+                              setSaveError('Comissão % inválida (use 0 a 100)')
+                              return
+                            }
+                            next = n
+                          }
+                          setSaveError(null)
+                          updateProductMutation.mutate({
+                            name: product.name,
+                            unit: product.unit,
+                            weight_per_unit_kg: product.weight_per_unit_kg,
+                            is_active: product.is_active,
+                            commission_percent: next,
+                          })
+                        }}
+                      />
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Percentual sobre o valor total do pedido (quantidade × preço). Deixe vazio para usar o cadastro em
+                        Organização.
+                      </div>
+                    </div>
                   </div>
                   <div className="rounded-lg border border-border bg-card p-4">
                     <div className="text-sm font-semibold">Resumo</div>

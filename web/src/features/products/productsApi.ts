@@ -27,6 +27,8 @@ export type Product = {
   sale_price_un: number | null
   target_profit_kg: number | null
   target_profit_un: number | null
+  /** Se preenchido, substitui o % padrão da organização na comissão sobre o pedido */
+  commission_percent: number | null
 }
 
 export async function fetchProducts(organizationId: string): Promise<Product[]> {
@@ -41,6 +43,7 @@ export async function fetchProducts(organizationId: string): Promise<Product[]> 
       weight_per_unit_kg,
       is_active,
       created_at,
+      commission_percent,
       product_costs ( cost, unit, effective_date ),
       product_pricing_rules ( unit, mode, markup_percent, target_margin_percent )
       ,product_sale_prices ( unit, price )
@@ -102,6 +105,7 @@ export async function fetchProducts(organizationId: string): Promise<Product[]> 
       sale_price_un: priceUn,
       target_profit_kg: targetKg,
       target_profit_un: targetUn,
+      commission_percent: (row.commission_percent as number | null) ?? null,
     }
   })
 }
@@ -164,6 +168,7 @@ export async function updateProduct(input: {
   unit: string
   weight_per_unit_kg: number | null
   is_active: boolean
+  commission_percent: number | null
 }) {
   const { error } = await supabase
     .from('products')
@@ -172,6 +177,7 @@ export async function updateProduct(input: {
       unit: input.unit,
       weight_per_unit_kg: input.weight_per_unit_kg,
       is_active: input.is_active,
+      commission_percent: input.commission_percent,
     })
     .eq('id', input.id)
     .eq('organization_id', input.organization_id)

@@ -11,7 +11,7 @@ const membershipsQueryKey = ['org', 'memberships']
 async function fetchMemberships(): Promise<OrgMembership[]> {
   const { data, error } = await supabase
     .from('organization_members')
-    .select('organization_id, role, organizations ( id, name )')
+    .select('organization_id, role, organizations ( id, name, default_commission_percent )')
     .order('created_at', { ascending: true })
 
   if (error) throw error
@@ -29,6 +29,8 @@ async function fetchMemberships(): Promise<OrgMembership[]> {
       organization: {
         id: org?.id ?? (row.organization_id as string),
         name: org?.name ?? 'Organização',
+        default_commission_percent:
+          (org as { default_commission_percent?: number | null } | undefined)?.default_commission_percent ?? null,
       },
     }
   })
