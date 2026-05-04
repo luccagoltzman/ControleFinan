@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ChangeEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { startOfMonth, endOfMonth, format as formatDate } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -214,7 +214,12 @@ export function DashboardPage() {
           <div className="flex flex-wrap items-end gap-3">
             <label className="block">
               <div className="mb-1 text-xs font-medium text-muted-foreground">Mês</div>
-              <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="w-[170px]" />
+              <Input
+                type="month"
+                value={month}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setMonth(e.target.value)}
+                className="w-[170px]"
+              />
             </label>
           </div>
         }

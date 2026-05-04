@@ -1,6 +1,6 @@
 import { PageHeader } from '../../components/PageHeader'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { supabase } from '../../app/supabaseClient'
@@ -300,13 +300,13 @@ export function OrgPage() {
                   type="color"
                   className="h-10 w-14 cursor-pointer rounded-md border border-input bg-background"
                   value={normalizeHexColor(colorHexDraft) ?? DEFAULT_PICKER_COLOR}
-                  onChange={(e) => setColorHexDraft(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setColorHexDraft(e.target.value)}
                   aria-label="Selecionar cor"
                 />
                 <Input
                   className="max-w-[140px] font-mono text-sm"
                   value={colorHexDraft}
-                  onChange={(e) => setColorHexDraft(e.target.value)}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setColorHexDraft(e.target.value)}
                   placeholder="#2563EB"
                   spellCheck={false}
                 />
@@ -365,7 +365,7 @@ export function OrgPage() {
                 className="sr-only"
                 tabIndex={-1}
                 disabled={uploadingLogo}
-                onChange={(e) => {
+                onChange={(e: ChangeEvent<HTMLInputElement>) => {
                   const f = e.target.files?.[0]
                   e.target.value = ''
                   if (f) void onUploadLogo(f)
@@ -421,7 +421,7 @@ export function OrgPage() {
                 className="mt-1"
                 placeholder="Ex.: 3,5 ou vazio"
                 value={commissionDraft}
-                onChange={(e) => setCommissionDraft(e.target.value)}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setCommissionDraft(e.target.value)}
               />
               <p className="mt-1 text-xs text-muted-foreground">
                 Deixe vazio se não houver comissão sobre o pedido (ou cadastre depois). Produtos podem ter um % próprio.

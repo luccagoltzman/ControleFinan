@@ -1,6 +1,6 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { MapPin } from 'lucide-react'
@@ -210,11 +210,21 @@ export function RegionsPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <Label>Latitude</Label>
-                <Input className="mt-1 font-mono text-sm" value={mapLatDraft} onChange={(e) => setMapLatDraft(e.target.value)} placeholder="-1,4558" />
+                <Input
+                  className="mt-1 font-mono text-sm"
+                  value={mapLatDraft}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setMapLatDraft(e.target.value)}
+                  placeholder="-1,4558"
+                />
               </div>
               <div>
                 <Label>Longitude</Label>
-                <Input className="mt-1 font-mono text-sm" value={mapLngDraft} onChange={(e) => setMapLngDraft(e.target.value)} placeholder="-48,5044" />
+                <Input
+                  className="mt-1 font-mono text-sm"
+                  value={mapLngDraft}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setMapLngDraft(e.target.value)}
+                  placeholder="-48,5044"
+                />
               </div>
             </div>
             {mapFormError ? <div className="text-sm text-destructive">{mapFormError}</div> : null}
