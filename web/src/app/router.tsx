@@ -9,6 +9,7 @@ import { PayrollPage } from '../features/payroll/PayrollPage'
 import { OrgPage } from '../features/org/OrgPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { RegionsPage } from '../features/regions/RegionsPage'
+import { ExpensesPage } from '../features/expenses/ExpensesPage'
 
 export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/app/products" replace /> },
@@ -59,6 +60,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireOrganization>
             <PayrollPage />
+          </RequireOrganization>
+        ),
+      },
+      {
+        path: 'expenses',
+        element: (
+          <RequireOrganization>
+            <ExpensesPage />
           </RequireOrganization>
         ),
       },

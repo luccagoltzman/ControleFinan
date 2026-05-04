@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, Building2, LayoutDashboard, MapPinned, Package, Receipt, Wallet } from 'lucide-react'
+import { Banknote, BarChart3, Building2, LayoutDashboard, MapPinned, Package, Receipt, Wallet } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
 import { useAuth } from '../../app/auth/useAuth'
@@ -14,6 +14,7 @@ const APP_NAV = [
   { to: '/app/sales', label: 'Vendas', shortLabel: 'Vendas', icon: Receipt },
   { to: '/app/regions', label: 'Regiões', shortLabel: 'Regiões', icon: MapPinned },
   { to: '/app/payroll', label: 'Folha salarial', shortLabel: 'Folha', icon: Wallet },
+  { to: '/app/expenses', label: 'Despesas avulsas', shortLabel: 'Despesas', icon: Banknote },
   { to: '/app/org', label: 'Organização', shortLabel: 'Conta', icon: Building2 },
 ] as const
 
