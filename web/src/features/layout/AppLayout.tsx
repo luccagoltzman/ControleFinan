@@ -8,6 +8,15 @@ import { useOrg } from '../../app/org/useOrg'
 import { useEffect, useMemo, useState } from 'react'
 import { getOrgLogoPublicUrl, orgPrimaryCssVars } from '../../lib/orgBranding'
 
+const APP_NAV = [
+  { to: '/app/dashboard', label: 'Dashboard', shortLabel: 'Painel', icon: LayoutDashboard },
+  { to: '/app/products', label: 'Produtos', shortLabel: 'Produtos', icon: Package },
+  { to: '/app/sales', label: 'Vendas', shortLabel: 'Vendas', icon: Receipt },
+  { to: '/app/regions', label: 'Regiões', shortLabel: 'Regiões', icon: MapPinned },
+  { to: '/app/payroll', label: 'Folha salarial', shortLabel: 'Folha', icon: Wallet },
+  { to: '/app/org', label: 'Organização', shortLabel: 'Conta', icon: Building2 },
+] as const
+
 function NavItem({
   to,
   label,
@@ -46,6 +55,47 @@ function NavItem({
   )
 }
 
+function MobileBottomNav() {
+  return (
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] backdrop-blur-md supports-[backdrop-filter]:bg-background/80 md:hidden"
+      aria-label="Menu principal"
+    >
+      <ul className="container-app flex items-stretch justify-between gap-0.5 px-1">
+        {APP_NAV.map(({ to, shortLabel, icon: Icon }) => (
+          <li key={to} className="min-w-0 flex-1">
+            <NavLink
+              to={to}
+              className={({ isActive }) =>
+                cn(
+                  'flex flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-2 text-[10px] font-medium leading-tight transition-colors sm:text-xs',
+                  isActive
+                    ? 'text-primary'
+                    : 'text-muted-foreground active:bg-muted/80 hover:text-foreground',
+                )
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <span
+                    className={cn(
+                      'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors',
+                      isActive ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted/60',
+                    )}
+                  >
+                    <Icon className="h-5 w-5" aria-hidden />
+                  </span>
+                  <span className="line-clamp-2 w-full text-center">{shortLabel}</span>
+                </>
+              )}
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
 export function AppLayout() {
   const { user } = useAuth()
   const { activeOrganization } = useOrg()
@@ -66,7 +116,6 @@ export function AppLayout() {
   ])
 
   const headerTitle = activeOrganization?.name ?? 'ControleFinan'
-  // compact: sidebar fica estreita e expande no hover
   const [compact, setCompact] = useState<boolean>(() => {
     const raw = window.localStorage.getItem('cf.sidebar.compact')
     return raw ? raw === '1' : true
@@ -80,71 +129,71 @@ export function AppLayout() {
   const isCollapsed = compact && !isHoveringSidebar
 
   return (
-    <div className="min-h-screen bg-muted/30" style={brandStyle}>
+    <div className="min-h-screen bg-muted/30 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0" style={brandStyle}>
       <header className="border-b border-border bg-background/70 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10">
-        <div className="container-app flex h-14 items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="container-app flex h-14 items-center justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             <div
               className={
                 headerLogoUrl
-                  ? 'flex h-11 max-h-11 min-h-11 min-w-11 max-w-[240px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-background px-2 py-1.5 shadow-sm'
-                  : 'flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary text-primary-foreground ring-1 ring-border/60'
+                  ? 'flex h-10 max-h-10 min-h-10 min-w-10 max-w-[200px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-background px-1.5 py-1 shadow-sm sm:h-11 sm:max-h-11 sm:min-h-11 sm:min-w-11 sm:max-w-[240px] sm:px-2 sm:py-1.5'
+                  : 'flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary text-primary-foreground ring-1 ring-border/60 sm:h-11 sm:w-11'
               }
             >
               {headerLogoUrl ? (
                 <img src={headerLogoUrl} alt="" className="max-h-full max-w-full object-contain object-center" />
               ) : (
-                <BarChart3 className="h-6 w-6 shrink-0" />
+                <BarChart3 className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />
               )}
             </div>
             <div className="min-w-0">
-              <div className="font-semibold leading-tight truncate">{headerTitle}</div>
-              <div className="text-xs text-muted-foreground">Preços • Vendas • Folha</div>
+              <div className="truncate text-sm font-semibold leading-tight sm:text-base">{headerTitle}</div>
+              <div className="hidden text-xs text-muted-foreground sm:block">Preços • Vendas • Folha</div>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="hidden sm:block text-xs text-muted-foreground">{user?.email}</div>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+            <div className="hidden text-xs text-muted-foreground sm:block">{user?.email}</div>
             <Button
               variant="outline"
+              size="sm"
+              className="hidden md:inline-flex"
               onClick={() => setCompact((v) => !v)}
               title={compact ? 'Fixar menu expandido' : 'Ativar menu compacto (expande no hover)'}
             >
               {compact ? 'Fixar expandido' : 'Compacto'}
             </Button>
-            <Button variant="outline" onClick={() => supabase.auth.signOut()}>
+            <Button variant="outline" size="sm" className="shrink-0 px-2 sm:px-4" onClick={() => supabase.auth.signOut()}>
               Sair
             </Button>
           </div>
         </div>
       </header>
 
-      <div className="container-app py-6">
-        <div className="flex flex-col gap-6 md:flex-row">
+      <div className="container-app py-4 md:py-6">
+        <div className="flex flex-col gap-4 md:flex-row md:gap-6">
           <aside
             className={cn(
-              'shrink-0 md:sticky md:top-[88px] h-fit rounded-xl border border-border bg-card/70 backdrop-blur supports-[backdrop-filter]:bg-card/60 p-2',
+              'hidden shrink-0 md:block md:sticky md:top-[88px] md:h-fit rounded-xl border border-border bg-card/70 p-2 backdrop-blur supports-[backdrop-filter]:bg-card/60',
               'transition-[width,padding] duration-200 ease-out',
-              isCollapsed ? 'md:w-[72px] px-1' : 'md:w-[220px] px-2',
+              isCollapsed ? 'md:w-[72px] md:px-1' : 'md:w-[220px] md:px-2',
             )}
             onMouseEnter={() => setIsHoveringSidebar(true)}
             onMouseLeave={() => setIsHoveringSidebar(false)}
           >
             <nav className="space-y-1">
-              <NavItem to="/app/dashboard" label="Dashboard" icon={LayoutDashboard} collapsed={isCollapsed} />
-              <NavItem to="/app/products" label="Produtos" icon={Package} collapsed={isCollapsed} />
-              <NavItem to="/app/sales" label="Vendas" icon={Receipt} collapsed={isCollapsed} />
-              <NavItem to="/app/regions" label="Regiões" icon={MapPinned} collapsed={isCollapsed} />
-              <NavItem to="/app/payroll" label="Folha salarial" icon={Wallet} collapsed={isCollapsed} />
-              <NavItem to="/app/org" label="Organização" icon={Building2} collapsed={isCollapsed} />
+              {APP_NAV.map(({ to, label, icon }) => (
+                <NavItem key={to} to={to} label={label} icon={icon} collapsed={isCollapsed} />
+              ))}
             </nav>
           </aside>
 
-          <main className="min-w-0 flex-1 rounded-xl border border-border bg-card/70 backdrop-blur supports-[backdrop-filter]:bg-card/60 p-6 md:p-8 overflow-hidden">
+          <main className="min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-card/70 p-4 backdrop-blur supports-[backdrop-filter]:bg-card/60 sm:p-6 md:p-8">
             <Outlet />
           </main>
         </div>
       </div>
+
+      <MobileBottomNav />
     </div>
   )
 }
-
