@@ -163,7 +163,12 @@ export function RegionsPage() {
           {regionsQuery.isLoading ? (
             <div className="text-sm text-muted-foreground">Carregando…</div>
           ) : regionsQuery.isError ? (
-            <div className="text-sm text-destructive">Erro ao carregar regiões.</div>
+            <div className="text-sm text-destructive">
+              Erro ao carregar regiões.{' '}
+              <span className="text-muted-foreground">
+                {(regionsQuery.error instanceof Error ? regionsQuery.error.message : String(regionsQuery.error)) ?? ''}
+              </span>
+            </div>
           ) : (regionsQuery.data ?? []).length === 0 ? (
             <div className="text-sm text-muted-foreground">Nenhuma região cadastrada.</div>
           ) : (

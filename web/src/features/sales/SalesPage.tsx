@@ -430,7 +430,12 @@ export function SalesPage() {
         {salesQuery.isLoading ? (
           <div className="text-sm text-muted-foreground">Carregando…</div>
         ) : salesQuery.isError ? (
-          <div className="text-sm text-rose-700">Erro ao carregar vendas.</div>
+          <div className="text-sm text-rose-700">
+            Erro ao carregar vendas.{' '}
+            <span className="text-muted-foreground">
+              {(salesQuery.error instanceof Error ? salesQuery.error.message : String(salesQuery.error)) ?? ''}
+            </span>
+          </div>
         ) : (salesQuery.data ?? []).length === 0 ? (
           <div className="text-sm text-muted-foreground">Nenhuma venda registrada neste mês.</div>
         ) : (

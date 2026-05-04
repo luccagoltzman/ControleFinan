@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { Banknote, BarChart3, Building2, LayoutDashboard, MapPinned, Package, Receipt, Wallet } from 'lucide-react'
-import { Button } from '../../components/ui/button'
+import { Button } from '../../components/ui/button.tsx'
 import { cn } from '../../lib/cn'
 import { useAuth } from '../../app/auth/useAuth'
 import { supabase } from '../../app/supabaseClient'
@@ -99,7 +99,7 @@ function MobileBottomNav() {
 
 export function AppLayout() {
   const { user } = useAuth()
-  const { activeOrganization } = useOrg()
+  const { activeOrganization, error: orgError, isLoading: orgLoading } = useOrg()
 
   const brandStyle = useMemo(
     () => orgPrimaryCssVars(activeOrganization?.brand_color ?? null),
@@ -171,6 +171,15 @@ export function AppLayout() {
       </header>
 
       <div className="container-app py-4 md:py-6">
+        {orgLoading ? (
+          <div className="mb-4 rounded-lg border border-border bg-background/60 px-4 py-3 text-sm text-muted-foreground">
+            Carregando organização…
+          </div>
+        ) : orgError ? (
+          <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Não foi possível carregar as informações da organização. Detalhes: {orgError}
+          </div>
+        ) : null}
         <div className="flex flex-col gap-4 md:flex-row md:gap-6">
           <aside
             className={cn(

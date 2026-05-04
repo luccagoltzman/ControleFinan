@@ -11,6 +11,7 @@ export function RequireOrganization({ children }: PropsWithChildren) {
 
   if (memberships.length === 0) return <Navigate to="/app/org" replace />
   if (!activeOrgId) return <Navigate to="/app/org" replace />
+  if (!memberships.some((m) => m.organization_id === activeOrgId)) return <Navigate to="/app/org" replace />
 
   return children
 }

@@ -196,7 +196,10 @@ export function ProductsPage() {
         <div className="text-sm text-muted-foreground">Carregando produtos…</div>
       ) : productsQuery.isError ? (
         <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Erro ao carregar produtos.
+          Erro ao carregar produtos.{' '}
+          <span className="text-muted-foreground">
+            {(productsQuery.error instanceof Error ? productsQuery.error.message : String(productsQuery.error)) ?? ''}
+          </span>
         </div>
       ) : products.length === 0 ? (
         <div className="rounded-md border border-border bg-card p-4 text-sm text-muted-foreground">

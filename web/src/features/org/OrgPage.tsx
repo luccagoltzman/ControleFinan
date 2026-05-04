@@ -7,12 +7,15 @@ import { supabase } from '../../app/supabaseClient'
 import { useOrg } from '../../app/org/useOrg'
 import { parseNumberPtBr } from '../../lib/number'
 import { toast } from '../../components/toast/ToastHost'
+import { useMutation } from '@tanstack/react-query'
+import { queryClient } from '../../app/queryClient'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { getOrgLogoPublicUrl, orgLogoBucket } from '../../lib/orgBranding'
 import { ImageIcon, Trash2, Upload } from 'lucide-react'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog'
 
 const CreateOrgSchema = z.object({
   name: z.string().min(2, 'Informe um nome'),
@@ -36,6 +39,9 @@ export function OrgPage() {
   const [commissionDraft, setCommissionDraft] = useState('')
   const [orgCommissionError, setOrgCommissionError] = useState<string | null>(null)
   const [savingCommission, setSavingCommission] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteConfirmName, setDeleteConfirmName] = useState('')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const [colorHexDraft, setColorHexDraft] = useState(DEFAULT_PICKER_COLOR)
   const [brandError, setBrandError] = useState<string | null>(null)
@@ -82,6 +88,23 @@ export function OrgPage() {
       setIsCreating(false)
     }
   }
+
+  const activeRole = memberships.find((m) => m.organization_id === activeOrgId)?.role ?? null
+
+  const deleteOrgMutation = useMutation({
+    mutationFn: async (orgId: string) => {
+      const { error } = await supabase.rpc('delete_organization', { org_id: orgId })
+      if (error) throw error
+    },
+    onSuccess: async () => {
+      toast({ title: 'Organização excluída' })
+      setDeleteOpen(false)
+      setDeleteConfirmName('')
+      setDeleteError(null)
+      await queryClient.invalidateQueries({ queryKey: ['org'] })
+      await refresh()
+    },
+  })
 
   async function onSaveBrandColor() {
     if (!activeOrgId) return
@@ -435,6 +458,88 @@ export function OrgPage() {
             <Button type="button" onClick={onSaveOrgCommission} disabled={savingCommission}>
               {savingCommission ? 'Salvando…' : 'Salvar comissão padrão'}
             </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeOrgId ? (
+        <Card className="border-destructive/30">
+          <CardHeader>
+            <CardTitle className="text-destructive">Zona de risco</CardTitle>
+            <CardDescription>
+              Excluir uma organização remove também os dados associados (vendas, regiões, funcionários, etc.) via cascata no
+              banco.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
+              <div className="font-medium">Organização ativa</div>
+              <div className="mt-1 text-muted-foreground">{activeOrganization?.name ?? '—'}</div>
+              <div className="mt-2 text-xs text-muted-foreground">Permissão atual: {activeRole ?? '—'}</div>
+            </div>
+
+            <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <DialogTrigger asChild>
+                <Button type="button" variant="destructive" disabled={!activeOrgId || activeRole !== 'owner'}>
+                  Excluir organização
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Excluir organização</DialogTitle>
+                  <DialogDescription>
+                    Esta ação é permanente. Para confirmar, digite exatamente o nome da organização ativa.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="grid gap-2">
+                  <Label>Confirmação (nome)</Label>
+                  <Input
+                    value={deleteConfirmName}
+                    onChange={(e) => setDeleteConfirmName(e.target.value)}
+                    placeholder={activeOrganization?.name ?? 'Nome da organização'}
+                  />
+                  {deleteError ? <div className="text-sm text-destructive">{deleteError}</div> : null}
+                </div>
+
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={
+                      !activeOrgId ||
+                      activeRole !== 'owner' ||
+                      !activeOrganization?.name ||
+                      deleteConfirmName.trim() !== activeOrganization.name ||
+                      deleteOrgMutation.isPending
+                    }
+                    onClick={async () => {
+                      if (!activeOrgId) return
+                      setDeleteError(null)
+                      try {
+                        await deleteOrgMutation.mutateAsync(activeOrgId)
+                        const next =
+                          memberships.filter((m) => m.organization_id !== activeOrgId)[0]?.organization_id ?? null
+                        if (next) setActiveOrgId(next)
+                      } catch (e) {
+                        setDeleteError(e instanceof Error ? e.message : 'Erro ao excluir organização')
+                      }
+                    }}
+                  >
+                    {deleteOrgMutation.isPending ? 'Excluindo…' : 'Excluir definitivamente'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {activeRole !== 'owner' ? (
+              <div className="text-xs text-muted-foreground">
+                Apenas o <span className="font-medium">owner</span> pode excluir uma organização.
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

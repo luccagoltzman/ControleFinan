@@ -373,8 +373,9 @@ export function DashboardPage() {
               </span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-[420px]">
-            <ResponsiveContainer width="100%" height="100%">
+          <CardContent className="h-[420px] min-h-[420px]">
+            <div className="h-full min-h-[1px] w-full min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={daily} margin={{ left: 12, right: 16, top: 16, bottom: 28 }}>
                 <defs>
                   <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
@@ -432,7 +433,8 @@ export function DashboardPage() {
                   isAnimationActive={false}
                 />
               </AreaChart>
-            </ResponsiveContainer>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
 
@@ -440,8 +442,9 @@ export function DashboardPage() {
           <CardHeader className="pb-3">
             <CardTitle>Receita por produto (Top 8)</CardTitle>
           </CardHeader>
-          <CardContent className="h-[420px]">
-            <ResponsiveContainer width="100%" height="100%">
+          <CardContent className="h-[420px] min-h-[420px]">
+            <div className="h-full min-h-[1px] w-full min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byProduct} margin={{ left: 12, right: 16, top: 16, bottom: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.35} />
                 <XAxis dataKey="name" tickMargin={8} hide />
@@ -461,7 +464,8 @@ export function DashboardPage() {
                 <Bar dataKey="revenue" name="Receita" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
                 <Bar dataKey="profit" name="Lucro" fill="hsl(142 76% 36%)" radius={[6, 6, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
 

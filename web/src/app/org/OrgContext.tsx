@@ -22,6 +22,8 @@ export type OrgMembership = {
 
 export type OrgState = {
   isLoading: boolean
+  /** Erro ao carregar memberships/organização (ex.: sessão/RLS); útil para diagnóstico */
+  error: string | null
   memberships: OrgMembership[]
   activeOrgId: string | null
   /** Organização atualmente selecionada (para tema e logo); null se não houver id ativo */

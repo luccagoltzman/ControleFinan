@@ -60,6 +60,7 @@ export function OrgProvider({ children }: PropsWithChildren) {
     queryKey: membershipsQueryKey,
     queryFn: fetchMemberships,
     enabled: !!user,
+    retry: 2,
   })
 
   useEffect(() => {
@@ -95,13 +96,16 @@ export function OrgProvider({ children }: PropsWithChildren) {
   const value = useMemo(
     () => ({
       isLoading: membershipsQuery.isLoading,
+      error: membershipsQuery.isError
+        ? (membershipsQuery.error instanceof Error ? membershipsQuery.error.message : String(membershipsQuery.error))
+        : null,
       memberships: membershipsQuery.data ?? [],
       activeOrgId,
       activeOrganization,
       setActiveOrgId,
       refresh,
     }),
-    [activeOrgId, activeOrganization, membershipsQuery.data, membershipsQuery.isLoading],
+    [activeOrgId, activeOrganization, membershipsQuery.data, membershipsQuery.isError, membershipsQuery.error, membershipsQuery.isLoading],
   )
 
   return <OrgContext value={value}>{children}</OrgContext>
