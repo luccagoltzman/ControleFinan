@@ -1,21 +1,39 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { Banknote, BarChart3, Building2, LayoutDashboard, MapPinned, Package, Receipt, Wallet } from 'lucide-react'
+import {
+  Banknote,
+  BarChart3,
+  Building2,
+  LayoutDashboard,
+  MapPinned,
+  Package,
+  Receipt,
+  ScrollText,
+  Wallet,
+} from 'lucide-react'
 import { Button } from '../../components/ui/button.tsx'
 import { cn } from '../../lib/cn'
+import { isPrivilegedOrgRole } from '../../lib/orgPrivileges'
 import { useAuth } from '../../app/auth/useAuth'
 import { supabase } from '../../app/supabaseClient'
 import { useOrg } from '../../app/org/useOrg'
 import { useEffect, useMemo, useState } from 'react'
 import { getOrgLogoPublicUrl, orgPrimaryCssVars } from '../../lib/orgBranding'
 
-const APP_NAV = [
-  { to: '/app/dashboard', label: 'Dashboard', shortLabel: 'Painel', icon: LayoutDashboard },
-  { to: '/app/products', label: 'Produtos', shortLabel: 'Produtos', icon: Package },
-  { to: '/app/sales', label: 'Vendas', shortLabel: 'Vendas', icon: Receipt },
-  { to: '/app/regions', label: 'Regiões', shortLabel: 'Regiões', icon: MapPinned },
-  { to: '/app/payroll', label: 'Folha salarial', shortLabel: 'Folha', icon: Wallet },
-  { to: '/app/expenses', label: 'Despesas avulsas', shortLabel: 'Despesas', icon: Banknote },
-  { to: '/app/org', label: 'Organização', shortLabel: 'Conta', icon: Building2 },
+const APP_NAV_ENTRIES = [
+  { to: '/app/dashboard', label: 'Dashboard', shortLabel: 'Painel', icon: LayoutDashboard, ownerAdminOnly: false },
+  { to: '/app/products', label: 'Produtos', shortLabel: 'Produtos', icon: Package, ownerAdminOnly: false },
+  { to: '/app/sales', label: 'Vendas', shortLabel: 'Vendas', icon: Receipt, ownerAdminOnly: false },
+  { to: '/app/regions', label: 'Regiões', shortLabel: 'Regiões', icon: MapPinned, ownerAdminOnly: false },
+  { to: '/app/payroll', label: 'Folha salarial', shortLabel: 'Folha', icon: Wallet, ownerAdminOnly: true },
+  { to: '/app/expenses', label: 'Despesas avulsas', shortLabel: 'Despesas', icon: Banknote, ownerAdminOnly: true },
+  {
+    to: '/app/audit',
+    label: 'Registro de atividades',
+    shortLabel: 'Atividades',
+    icon: ScrollText,
+    ownerAdminOnly: true,
+  },
+  { to: '/app/org', label: 'Organização', shortLabel: 'Conta', icon: Building2, ownerAdminOnly: false },
 ] as const
 
 function NavItem({
@@ -56,14 +74,18 @@ function NavItem({
   )
 }
 
-function MobileBottomNav() {
+function MobileBottomNav({
+  items,
+}: {
+  items: ReadonlyArray<(typeof APP_NAV_ENTRIES)[number]>
+}) {
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1 shadow-[0_-4px_24px_rgba(0,0,0,0.06)] backdrop-blur-md supports-[backdrop-filter]:bg-background/80 md:hidden"
       aria-label="Menu principal"
     >
       <ul className="container-app flex items-stretch justify-between gap-0.5 px-1">
-        {APP_NAV.map(({ to, shortLabel, icon: Icon }) => (
+        {items.map(({ to, shortLabel, icon: Icon }) => (
           <li key={to} className="min-w-0 flex-1">
             <NavLink
               to={to}
@@ -99,7 +121,18 @@ function MobileBottomNav() {
 
 export function AppLayout() {
   const { user } = useAuth()
-  const { activeOrganization, error: orgError, isLoading: orgLoading } = useOrg()
+  const { activeOrganization, activeOrgId, memberships, error: orgError, isLoading: orgLoading } = useOrg()
+
+  const activeRole = useMemo(
+    () => memberships.find((m) => m.organization_id === activeOrgId)?.role,
+    [memberships, activeOrgId],
+  )
+  const showOwnerAdminNav = isPrivilegedOrgRole(activeRole)
+
+  const navItems = useMemo(
+    () => APP_NAV_ENTRIES.filter((e) => !e.ownerAdminOnly || showOwnerAdminNav),
+    [showOwnerAdminNav],
+  )
 
   const brandStyle = useMemo(
     () => orgPrimaryCssVars(activeOrganization?.brand_color ?? null),
@@ -191,7 +224,7 @@ export function AppLayout() {
             onMouseLeave={() => setIsHoveringSidebar(false)}
           >
             <nav className="space-y-1">
-              {APP_NAV.map(({ to, label, icon }) => (
+              {navItems.map(({ to, label, icon }) => (
                 <NavItem key={to} to={to} label={label} icon={icon} collapsed={isCollapsed} />
               ))}
             </nav>
@@ -203,7 +236,7 @@ export function AppLayout() {
         </div>
       </div>
 
-      <MobileBottomNav />
+      <MobileBottomNav items={navItems} />
     </div>
   )
 }

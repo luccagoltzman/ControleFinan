@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RequireAuth } from './routes/RequireAuth'
 import { RequireOrganization } from './routes/RequireOrganization'
+import { RequireOrgPrivilege } from './routes/RequireOrgPrivilege'
 import { AppLayout } from '../features/layout/AppLayout'
 import { LoginPage } from '../features/auth/LoginPage'
 import { ProductsPage } from '../features/products/ProductsPage'
@@ -10,6 +11,7 @@ import { OrgPage } from '../features/org/OrgPage'
 import { DashboardPage } from '../features/dashboard/DashboardPage'
 import { RegionsPage } from '../features/regions/RegionsPage'
 import { ExpensesPage } from '../features/expenses/ExpensesPage'
+import { AuditLogsPage } from '../features/audit/AuditLogsPage'
 
 export const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/app/products" replace /> },
@@ -59,7 +61,9 @@ export const router = createBrowserRouter([
         path: 'payroll',
         element: (
           <RequireOrganization>
-            <PayrollPage />
+            <RequireOrgPrivilege>
+              <PayrollPage />
+            </RequireOrgPrivilege>
           </RequireOrganization>
         ),
       },
@@ -67,7 +71,19 @@ export const router = createBrowserRouter([
         path: 'expenses',
         element: (
           <RequireOrganization>
-            <ExpensesPage />
+            <RequireOrgPrivilege>
+              <ExpensesPage />
+            </RequireOrgPrivilege>
+          </RequireOrganization>
+        ),
+      },
+      {
+        path: 'audit',
+        element: (
+          <RequireOrganization>
+            <RequireOrgPrivilege>
+              <AuditLogsPage />
+            </RequireOrgPrivilege>
           </RequireOrganization>
         ),
       },
