@@ -42,6 +42,9 @@ export function OrgPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [memberEmail, setMemberEmail] = useState('')
+  const [memberRole, setMemberRole] = useState<'member' | 'admin'>('member')
+  const [memberError, setMemberError] = useState<string | null>(null)
 
   const [colorHexDraft, setColorHexDraft] = useState(DEFAULT_PICKER_COLOR)
   const [brandError, setBrandError] = useState<string | null>(null)
@@ -102,6 +105,24 @@ export function OrgPage() {
       setDeleteConfirmName('')
       setDeleteError(null)
       await queryClient.invalidateQueries({ queryKey: ['org'] })
+      await refresh()
+    },
+  })
+
+  const addMemberMutation = useMutation({
+    mutationFn: async (input: { orgId: string; email: string; role: 'member' | 'admin' }) => {
+      const { error } = await supabase.rpc('add_org_member_by_email', {
+        org_id: input.orgId,
+        member_email: input.email,
+        member_role: input.role,
+      })
+      if (error) throw error
+    },
+    onSuccess: async () => {
+      toast({ title: 'Membro adicionado' })
+      setMemberEmail('')
+      setMemberRole('member')
+      setMemberError(null)
       await refresh()
     },
   })
@@ -422,6 +443,83 @@ export function OrgPage() {
             {brandError ? (
               <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {brandError}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeOrgId ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Membros</CardTitle>
+            <CardDescription>
+              Para várias pessoas verem os mesmos dados, adicione todos como membros desta organização.
+              <span className="block">Somente owner/admin podem adicionar.</span>
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-2 md:grid-cols-12">
+              <div className="md:col-span-7">
+                <Label>E-mail do usuário</Label>
+                <Input
+                  className="mt-1"
+                  value={memberEmail}
+                  onChange={(e) => setMemberEmail(e.target.value)}
+                  placeholder="email@exemplo.com"
+                  inputMode="email"
+                />
+              </div>
+              <div className="md:col-span-3">
+                <Label>Papel</Label>
+                <select
+                  className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={memberRole}
+                  onChange={(e) => setMemberRole(e.target.value as any)}
+                >
+                  <option value="member">member</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+              <div className="md:col-span-2 flex items-end">
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={
+                    !activeOrgId ||
+                    !memberEmail.trim() ||
+                    !activeRole ||
+                    !['owner', 'admin'].includes(activeRole) ||
+                    addMemberMutation.isPending
+                  }
+                  onClick={async () => {
+                    if (!activeOrgId) return
+                    setMemberError(null)
+                    try {
+                      await addMemberMutation.mutateAsync({
+                        orgId: activeOrgId,
+                        email: memberEmail.trim(),
+                        role: memberRole,
+                      })
+                    } catch (e) {
+                      setMemberError(e instanceof Error ? e.message : 'Erro ao adicionar membro')
+                    }
+                  }}
+                >
+                  {addMemberMutation.isPending ? 'Adicionando…' : 'Adicionar'}
+                </Button>
+              </div>
+            </div>
+
+            {memberError ? (
+              <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {memberError}
+              </div>
+            ) : null}
+
+            {activeRole && !['owner', 'admin'].includes(activeRole) ? (
+              <div className="text-xs text-muted-foreground">
+                Você está como <span className="font-medium">{activeRole}</span>. Para adicionar membros, peça ao owner/admin.
               </div>
             ) : null}
           </CardContent>
