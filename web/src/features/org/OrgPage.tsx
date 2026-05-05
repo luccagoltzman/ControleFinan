@@ -7,8 +7,10 @@ import { supabase } from '../../app/supabaseClient'
 import { useOrg } from '../../app/org/useOrg'
 import { parseNumberPtBr } from '../../lib/number'
 import { toast } from '../../components/toast/ToastHost'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { queryClient } from '../../app/queryClient'
+import { useAuth } from '../../app/auth/useAuth'
+import type { OrgRole } from '../../app/org/OrgContext'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -25,6 +27,19 @@ type CreateOrgValues = z.infer<typeof CreateOrgSchema>
 
 const DEFAULT_PICKER_COLOR = '#475569'
 
+type OrgMemberRow = {
+  user_id: string
+  email: string
+  role: OrgRole
+  created_at: string
+}
+
+async function fetchOrgMembers(orgId: string): Promise<OrgMemberRow[]> {
+  const { data, error } = await supabase.rpc('list_org_members', { org_id: orgId })
+  if (error) throw error
+  return (data ?? []) as OrgMemberRow[]
+}
+
 function normalizeHexColor(raw: string): string | null {
   const s = raw.trim()
   if (/^#[0-9A-Fa-f]{6}$/.test(s)) return s
@@ -33,6 +48,7 @@ function normalizeHexColor(raw: string): string | null {
 }
 
 export function OrgPage() {
+  const { user } = useAuth()
   const { memberships, activeOrgId, activeOrganization, setActiveOrgId, refresh, isLoading } = useOrg()
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
@@ -93,6 +109,16 @@ export function OrgPage() {
   }
 
   const activeRole = memberships.find((m) => m.organization_id === activeOrgId)?.role ?? null
+  const canManageMembers =
+    !!activeOrgId &&
+    !!activeRole &&
+    (activeRole === 'owner' || activeRole === 'admin')
+
+  const orgMembersQuery = useQuery({
+    queryKey: ['org-members', { org: activeOrgId }],
+    queryFn: () => fetchOrgMembers(activeOrgId!),
+    enabled: !!activeOrgId,
+  })
 
   const deleteOrgMutation = useMutation({
     mutationFn: async (orgId: string) => {
@@ -123,8 +149,44 @@ export function OrgPage() {
       setMemberEmail('')
       setMemberRole('member')
       setMemberError(null)
+      await queryClient.invalidateQueries({ queryKey: ['org-members'] })
       await refresh()
     },
+  })
+
+  const updateMemberRoleMutation = useMutation({
+    mutationFn: async (input: { orgId: string; member_user_id: string; new_role: 'admin' | 'member' }) => {
+      const { error } = await supabase.rpc('update_org_member_role', {
+        org_id: input.orgId,
+        member_user_id: input.member_user_id,
+        new_role: input.new_role,
+      })
+      if (error) throw error
+    },
+    onSuccess: async () => {
+      toast({ title: 'Permissão atualizada' })
+      await queryClient.invalidateQueries({ queryKey: ['org-members'] })
+      await refresh()
+    },
+    onError: (e) =>
+      toast({ title: 'Não foi possível alterar a permissão', description: String((e as Error)?.message ?? e) }),
+  })
+
+  const removeMemberMutation = useMutation({
+    mutationFn: async (input: { orgId: string; member_user_id: string }) => {
+      const { error } = await supabase.rpc('remove_org_member', {
+        org_id: input.orgId,
+        member_user_id: input.member_user_id,
+      })
+      if (error) throw error
+    },
+    onSuccess: async () => {
+      toast({ title: 'Usuário removido da organização' })
+      await queryClient.invalidateQueries({ queryKey: ['org-members'] })
+      await refresh()
+    },
+    onError: (e) =>
+      toast({ title: 'Não foi possível remover o usuário', description: String((e as Error)?.message ?? e) }),
   })
 
   async function onSaveBrandColor() {
@@ -486,11 +548,7 @@ export function OrgPage() {
                   type="button"
                   className="w-full"
                   disabled={
-                    !activeOrgId ||
-                    !memberEmail.trim() ||
-                    !activeRole ||
-                    !['owner', 'admin'].includes(activeRole) ||
-                    addMemberMutation.isPending
+                    !activeOrgId || !memberEmail.trim() || !canManageMembers || addMemberMutation.isPending
                   }
                   onClick={async () => {
                     if (!activeOrgId) return
@@ -517,9 +575,111 @@ export function OrgPage() {
               </div>
             ) : null}
 
-            {activeRole && !['owner', 'admin'].includes(activeRole) ? (
+            <div className="border-t border-border pt-4">
+              <div className="mb-3 text-sm font-medium text-foreground">Participantes</div>
+              {orgMembersQuery.isLoading ? (
+                <div className="text-sm text-muted-foreground">Carregando lista…</div>
+              ) : orgMembersQuery.isError ? (
+                <div className="text-sm text-destructive">
+                  Erro ao carregar participantes.
+                  {(orgMembersQuery.error instanceof Error ? orgMembersQuery.error.message : String(orgMembersQuery.error)) ??
+                    ''}
+                </div>
+              ) : !(orgMembersQuery.data ?? []).length ? (
+                <div className="text-sm text-muted-foreground">Nenhum participante encontrado.</div>
+              ) : (
+                <div className="overflow-x-auto rounded-md border border-border">
+                  <table className="min-w-[520px] w-full text-sm">
+                    <thead className="bg-muted/40 text-left text-xs font-medium uppercase text-muted-foreground">
+                      <tr>
+                        <th className="p-2">E-mail</th>
+                        <th className="p-2 w-[200px]">Permissão</th>
+                        <th className="p-2 w-[120px] text-right">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(orgMembersQuery.data ?? []).map((row: OrgMemberRow) => (
+                        <tr key={row.user_id} className="border-t border-border">
+                          <td className="p-2">
+                            <span className="break-all">{row.email || '(sem e-mail)'}</span>
+                            {user?.id === row.user_id ? (
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">(você)</span>
+                            ) : null}
+                          </td>
+                          <td className="p-2 align-middle">
+                            {row.role === 'owner' ? (
+                              <span className="text-sm font-medium text-foreground">Proprietário</span>
+                            ) : canManageMembers ? (
+                              <select
+                                className="h-9 w-full max-w-[180px] rounded-md border border-input bg-background px-2 text-sm"
+                                value={row.role}
+                                onChange={(e) => {
+                                  const v = e.target.value as OrgRole
+                                  if (!activeOrgId || v === row.role || (v !== 'admin' && v !== 'member')) return
+                                  void updateMemberRoleMutation.mutateAsync({
+                                    orgId: activeOrgId,
+                                    member_user_id: row.user_id,
+                                    new_role: v,
+                                  })
+                                }}
+                                disabled={updateMemberRoleMutation.isPending || removeMemberMutation.isPending}
+                                aria-label="Permissão do participante"
+                              >
+                                <option value="member">member</option>
+                                <option value="admin">admin</option>
+                              </select>
+                            ) : (
+                              <span className="text-muted-foreground">{row.role}</span>
+                            )}
+                          </td>
+                          <td className="p-2 text-right align-middle">
+                            {canManageMembers && row.role !== 'owner' ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                disabled={
+                                  removeMemberMutation.isPending ||
+                                  updateMemberRoleMutation.isPending
+                                }
+                                onClick={() => {
+                                  if (
+                                    !window.confirm(
+                                      `Remover ${row.email || 'este usuário'} desta organização? Ele(a) perderá acesso aos dados compartilhados.`,
+                                    )
+                                  ) {
+                                    return
+                                  }
+                                  if (!activeOrgId) return
+                                  void removeMemberMutation.mutateAsync({
+                                    orgId: activeOrgId,
+                                    member_user_id: row.user_id,
+                                  })
+                                }}
+                              >
+                                Excluir
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                O papel <span className="font-medium">Proprietário</span> não pode ser alterado aqui nem removido da lista —
+                apenas via exclusão da organização. Admins podem gerir outros usuários, exceto o proprietário.
+              </p>
+            </div>
+
+            {activeRole === 'member' ? (
               <div className="text-xs text-muted-foreground">
-                Você está como <span className="font-medium">{activeRole}</span>. Para adicionar membros, peça ao owner/admin.
+                Você está como <span className="font-medium">member</span>. Para gerir membros, peça a um proprietário ou
+                admin.
               </div>
             ) : null}
           </CardContent>
