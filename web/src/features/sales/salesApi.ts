@@ -4,6 +4,8 @@ import { removeStoragePaths } from './saleAttachmentsApi'
 export type Sale = {
   id: string
   organization_id: string
+  /** Várias linhas com o mesmo `order_id` = um pedido com vários produtos. */
+  order_id: string | null
   product_id: string
   region_id: string | null
   sold_at: string
@@ -28,7 +30,7 @@ export async function fetchSales(input: {
   let q = supabase
     .from('sales')
     .select(
-      'id, organization_id, product_id, region_id, sold_at, qty, qty_unit, unit_price, unit_cost_snapshot, commission_percent_snapshot, commission_amount, notes, created_at, products ( name ), regions ( name )',
+      'id, organization_id, order_id, product_id, region_id, sold_at, qty, qty_unit, unit_price, unit_cost_snapshot, commission_percent_snapshot, commission_amount, notes, created_at, products ( name ), regions ( name )',
     )
     .eq('organization_id', input.organizationId)
     .order('sold_at', { ascending: false })
@@ -42,6 +44,7 @@ export async function fetchSales(input: {
   return (data ?? []).map((row) => ({
     id: row.id as string,
     organization_id: row.organization_id as string,
+    order_id: (row.order_id as string | null | undefined) ?? null,
     product_id: row.product_id as string,
     region_id: (row.region_id as string | null) ?? null,
     sold_at: row.sold_at as string,
@@ -60,6 +63,7 @@ export async function fetchSales(input: {
 
 export async function createSale(input: {
   organization_id: string
+  order_id?: string | null
   product_id: string
   region_id: string | null
   sold_at: string
@@ -71,8 +75,52 @@ export async function createSale(input: {
   commission_amount: number
   notes: string | null
 }) {
-  const { error } = await supabase.from('sales').insert(input)
+  const { order_id, ...rest } = input
+  const row = order_id != null && order_id !== '' ? { ...rest, order_id } : rest
+  const { error } = await supabase.from('sales').insert(row)
   if (error) throw error
+}
+
+export async function createSaleOrder(input: {
+  organization_id: string
+  order_id: string
+  region_id: string | null
+  sold_at: string
+  notes: string | null
+  lines: Array<{
+    product_id: string
+    qty: number
+    qty_unit: 'kg' | 'un'
+    unit_price: number
+    unit_cost_snapshot: number
+    commission_percent_snapshot: number
+    commission_amount: number
+  }>
+}) {
+  if (input.lines.length === 0) return
+  const rows = input.lines.map((l) => ({
+    organization_id: input.organization_id,
+    order_id: input.order_id,
+    region_id: input.region_id,
+    sold_at: input.sold_at,
+    notes: input.notes,
+    product_id: l.product_id,
+    qty: l.qty,
+    qty_unit: l.qty_unit,
+    unit_price: l.unit_price,
+    unit_cost_snapshot: l.unit_cost_snapshot,
+    commission_percent_snapshot: l.commission_percent_snapshot,
+    commission_amount: l.commission_amount,
+  }))
+  const { error } = await supabase.from('sales').insert(rows)
+  if (error) throw error
+}
+
+export async function deleteSaleGroup(input: { organization_id: string; saleIds: string[] }) {
+  const ids = [...new Set(input.saleIds)].filter(Boolean)
+  for (const id of ids) {
+    await deleteSale({ organization_id: input.organization_id, id })
+  }
 }
 
 export async function deleteSale(input: { organization_id: string; id: string }) {

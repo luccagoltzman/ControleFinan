@@ -1,7 +1,7 @@
 import { PageHeader } from '../../components/PageHeader'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { useOrg } from '../../app/org/useOrg'
@@ -218,8 +218,13 @@ export function ProductsPage() {
 
 function ProductCard({ product, organizationId }: { product: Product; organizationId: string }) {
   const today = new Date().toISOString().slice(0, 10)
+  const [nameDraft, setNameDraft] = useState(product.name)
   const [costRaw, setCostRaw] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setNameDraft(product.name)
+  }, [product.name, product.id])
   const [targetKgRaw, setTargetKgRaw] = useState(() =>
     product.target_profit_kg != null ? String(product.target_profit_kg).replace('.', ',') : '',
   )
@@ -405,17 +410,39 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
                       <Label className="text-muted-foreground">Nome</Label>
                       <Input
                         className="mt-1"
-                        defaultValue={product.name}
-                        onBlur={(e: ChangeEvent<HTMLInputElement>) =>
-                          updateProductMutation.mutate({
-                            name: e.target.value,
-                            unit: product.unit,
-                            weight_per_unit_kg: product.weight_per_unit_kg,
-                            is_active: product.is_active,
-                            commission_percent: product.commission_percent,
-                          })
-                        }
+                        value={nameDraft}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => setNameDraft(e.target.value)}
                       />
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <ShButton
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          disabled={
+                            updateProductMutation.isPending ||
+                            nameDraft.trim().length < 2 ||
+                            nameDraft.trim() === product.name
+                          }
+                          onClick={() => {
+                            setSaveError(null)
+                            const next = nameDraft.trim()
+                            if (next.length < 2) {
+                              setSaveError('O nome deve ter pelo menos 2 caracteres.')
+                              return
+                            }
+                            updateProductMutation.mutate({
+                              name: next,
+                              unit: product.unit,
+                              weight_per_unit_kg: product.weight_per_unit_kg,
+                              is_active: product.is_active,
+                              commission_percent: product.commission_percent,
+                            })
+                          }}
+                        >
+                          Salvar nome
+                        </ShButton>
+                        <span className="text-xs text-muted-foreground">Alterações só gravam ao clicar em Salvar nome.</span>
+                      </div>
                     </div>
                     <div>
                       <Label className="text-muted-foreground">Unidade “padrão” (apenas exibição)</Label>
@@ -503,7 +530,8 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
 
             <DialogFooter>
               <div className="text-xs text-muted-foreground">
-                As alterações são salvas conforme você clica em “Salvar” (preço/custo) ou sai do campo (produto).
+                Custos e alvos: use os botões Salvar. Nome do produto: use &quot;Salvar nome&quot;. Unidade e outros campos
+                continuam ao sair do campo.
               </div>
             </DialogFooter>
           </DialogContent>
