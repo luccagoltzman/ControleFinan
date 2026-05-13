@@ -3,6 +3,7 @@ import { useMemo, useState, type ChangeEvent } from 'react'
 import { useOrg } from '../../app/org/useOrg'
 import { queryClient } from '../../app/queryClient'
 import { PageHeader } from '../../components/PageHeader'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { MoneyInput } from '../../components/inputs/MoneyInput'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
@@ -294,6 +295,14 @@ export function SalesPage() {
         }
       />
 
+      {salesQuery.isLoading ? (
+        <InteractivePageLoader
+          variant="embedded"
+          message="Carregando vendas…"
+          tips={['Somando pedidos e comissões do período…', 'Organizando linhas por data…']}
+        />
+      ) : (
+        <>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
@@ -489,9 +498,7 @@ export function SalesPage() {
           <CardTitle>Vendas do mês</CardTitle>
         </CardHeader>
         <CardContent>
-          {salesQuery.isLoading ? (
-            <div className="text-sm text-muted-foreground">Carregando…</div>
-          ) : salesQuery.isError ? (
+          {salesQuery.isError ? (
             <div className="text-sm text-rose-700">
               Erro ao carregar vendas.{' '}
               <span className="text-muted-foreground">
@@ -517,6 +524,8 @@ export function SalesPage() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   )
 }

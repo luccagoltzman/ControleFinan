@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { MapPin } from 'lucide-react'
 import { PageHeader } from '../../components/PageHeader'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog'
@@ -155,14 +156,20 @@ export function RegionsPage() {
         }
       />
 
+      {regionsQuery.isLoading ? (
+        <InteractivePageLoader
+          variant="embedded"
+          message="Carregando regiões…"
+          tips={['Preparando o mapa e os filtros por localidade…', 'Sincronizando nomes e coordenadas…']}
+        />
+      ) : (
+        <>
       <Card>
         <CardHeader className="pb-3">
           <CardTitle>Lista</CardTitle>
         </CardHeader>
         <CardContent>
-          {regionsQuery.isLoading ? (
-            <div className="text-sm text-muted-foreground">Carregando…</div>
-          ) : regionsQuery.isError ? (
+          {regionsQuery.isError ? (
             <div className="text-sm text-destructive">
               Erro ao carregar regiões.{' '}
               <span className="text-muted-foreground">
@@ -252,6 +259,8 @@ export function RegionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+        </>
+      )}
     </div>
   )
 }

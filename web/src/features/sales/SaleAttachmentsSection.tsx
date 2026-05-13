@@ -188,7 +188,9 @@ export function SaleAttachmentsSection({
         </div>
       </div>
 
-      {attachmentsQuery.isLoading ? <div className="mt-2 text-xs text-muted-foreground">Carregando anexos…</div> : null}
+      {attachmentsQuery.isLoading ? (
+        <p className="mt-2 text-xs text-muted-foreground">Carregando anexos…</p>
+      ) : null}
       {attachmentsQuery.isError ? <div className="mt-2 text-xs text-destructive">Erro ao carregar anexos.</div> : null}
     </div>
   )

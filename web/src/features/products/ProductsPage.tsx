@@ -1,4 +1,5 @@
 import { PageHeader } from '../../components/PageHeader'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useState } from 'react'
@@ -193,7 +194,11 @@ export function ProductsPage() {
       />
 
       {productsQuery.isLoading ? (
-        <div className="text-sm text-muted-foreground">Carregando produtos…</div>
+        <InteractivePageLoader
+          variant="embedded"
+          message="Carregando produtos…"
+          tips={['Buscando custos, alvos e preços cadastrados…', 'Montando a lista do catálogo…']}
+        />
       ) : productsQuery.isError ? (
         <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           Erro ao carregar produtos.{' '}

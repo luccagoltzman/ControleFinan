@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ClipboardList } from 'lucide-react'
 import { useMemo } from 'react'
 import { PageHeader } from '../../components/PageHeader'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent } from '../../components/ui/card'
 import { useOrg } from '../../app/org/useOrg'
@@ -74,7 +75,11 @@ export function AuditLogsPage() {
       />
 
       {logsQuery.isLoading ? (
-        <p className="text-sm text-muted-foreground">Carregando…</p>
+        <InteractivePageLoader
+          variant="embedded"
+          message="Carregando registro de atividades…"
+          tips={['Buscando eventos de auditoria da organização…']}
+        />
       ) : errorText ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {errorText}

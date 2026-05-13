@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { Banknote, Pencil } from 'lucide-react'
 import { PageHeader } from '../../components/PageHeader'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog'
@@ -190,6 +191,13 @@ export function ExpensesPage() {
         }
       />
 
+      {expensesQuery.isLoading ? (
+        <InteractivePageLoader
+          variant="embedded"
+          message="Carregando despesas…"
+          tips={['Somando lançamentos do mês selecionado…', 'Montando tabela e totais…']}
+        />
+      ) : (
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-3">
@@ -267,9 +275,7 @@ export function ExpensesPage() {
             </Dialog>
           </CardHeader>
           <CardContent>
-            {expensesQuery.isLoading ? (
-              <div className="text-sm text-muted-foreground">Carregando…</div>
-            ) : expensesQuery.isError ? (
+            {expensesQuery.isError ? (
               <div className="text-sm text-destructive">Erro ao carregar despesas.</div>
             ) : rows.length === 0 ? (
               <div className="text-sm text-muted-foreground">Nenhuma despesa neste mês.</div>
@@ -385,6 +391,7 @@ export function ExpensesPage() {
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   )
 }

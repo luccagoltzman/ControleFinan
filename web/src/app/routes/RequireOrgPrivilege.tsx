@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react'
 import { Navigate } from 'react-router-dom'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { useOrg } from '../org/useOrg'
 import { isPrivilegedOrgRole } from '../../lib/orgPrivileges'
 
@@ -8,7 +9,13 @@ export function RequireOrgPrivilege({ children }: PropsWithChildren) {
   const { isLoading, memberships, activeOrgId } = useOrg()
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">Carregando organização…</div>
+    return (
+      <InteractivePageLoader
+        variant="embedded"
+        message="Carregando permissões…"
+        tips={['Confirmando seu papel na organização…']}
+      />
+    )
   }
 
   if (!activeOrgId) return <Navigate to="/app/org" replace />

@@ -18,6 +18,7 @@ import { supabase } from '../../app/supabaseClient'
 import { useOrg } from '../../app/org/useOrg'
 import { useEffect, useMemo, useState } from 'react'
 import { getOrgLogoPublicUrl, orgPrimaryCssVars } from '../../lib/orgBranding'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 
 const APP_NAV_ENTRIES = [
   { to: '/app/dashboard', label: 'Dashboard', shortLabel: 'Painel', icon: LayoutDashboard, ownerAdminOnly: false },
@@ -204,11 +205,7 @@ export function AppLayout() {
       </header>
 
       <div className="container-app py-4 md:py-6">
-        {orgLoading ? (
-          <div className="mb-4 rounded-lg border border-border bg-background/60 px-4 py-3 text-sm text-muted-foreground">
-            Carregando organização…
-          </div>
-        ) : orgError ? (
+        {orgError ? (
           <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             Não foi possível carregar as informações da organização. Detalhes: {orgError}
           </div>
@@ -230,8 +227,20 @@ export function AppLayout() {
             </nav>
           </aside>
 
-          <main className="min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-card/70 p-4 backdrop-blur supports-[backdrop-filter]:bg-card/60 sm:p-6 md:p-8">
-            <Outlet />
+          <main className="relative min-h-[min(520px,calc(100dvh-10rem))] min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-card/70 p-4 backdrop-blur supports-[backdrop-filter]:bg-card/60 sm:p-6 md:p-8">
+            {orgLoading ? (
+              <div className="flex min-h-[min(480px,calc(100dvh-10rem))] flex-1 flex-col items-center justify-center">
+                <InteractivePageLoader
+                  variant="embedded"
+                  message="Carregando organização…"
+                  tips={[]}
+                  showInteractionHint={false}
+                  className="!min-h-0 min-h-0"
+                />
+              </div>
+            ) : (
+              <Outlet />
+            )}
           </main>
         </div>
       </div>

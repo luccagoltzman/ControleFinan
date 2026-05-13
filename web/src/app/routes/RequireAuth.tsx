@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { useAuth } from '../auth/useAuth'
 
 export function RequireAuth({ children }: PropsWithChildren) {
@@ -8,9 +9,14 @@ export function RequireAuth({ children }: PropsWithChildren) {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen grid place-items-center">
-        <div className="text-sm text-slate-600">Carregando…</div>
-      </div>
+      <InteractivePageLoader
+        variant="fullscreen"
+        message="Abrindo sua sessão…"
+        tips={[
+          'Verificando credenciais com segurança…',
+          'Só um instante — quase no painel.',
+        ]}
+      />
     )
   }
 

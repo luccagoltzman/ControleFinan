@@ -1,4 +1,5 @@
 import { PageHeader } from '../../components/PageHeader'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMemo, useState } from 'react'
@@ -196,6 +197,25 @@ export function PayrollPage() {
     return { entries, byEmployee }
   }, [entriesQuery.data])
 
+  const payrollInitialLoad =
+    !!activeOrgId && (employeesQuery.isLoading || periodsQuery.isLoading)
+
+  if (payrollInitialLoad) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Folha salarial"
+          description="Colaboradores, períodos mensais e lançamentos de proventos/descontos."
+        />
+        <InteractivePageLoader
+          variant="embedded"
+          message="Carregando folha salarial…"
+          tips={['Buscando colaboradores e períodos…', 'Organizando o painel de pagamentos…']}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -249,9 +269,7 @@ export function PayrollPage() {
         </CardHeader>
         <CardContent>
         <div className="space-y-2">
-          {employeesQuery.isLoading ? (
-            <div className="text-sm text-muted-foreground">Carregando…</div>
-          ) : employees.length === 0 ? (
+          {employees.length === 0 ? (
             <div className="text-sm text-muted-foreground">Nenhum colaborador cadastrado.</div>
           ) : (
             employees.map((e) => (
@@ -365,14 +383,14 @@ export function PayrollPage() {
 
           <div className="mt-4 space-y-3">
             {entriesQuery.isLoading ? (
-              <div className="text-sm text-slate-600">Carregando lançamentos…</div>
+              <p className="py-6 text-center text-sm text-muted-foreground">Carregando lançamentos…</p>
             ) : (
               <>
                 <TotalsView employees={employees} entries={periodTotals.entries} />
                 <div className="mt-6">
                   <div className="mb-2 text-sm font-medium text-slate-800">Checklist de pagamento</div>
                   {paymentsQuery.isLoading ? (
-                    <div className="text-sm text-slate-600">Carregando checklist…</div>
+                    <p className="py-4 text-center text-sm text-muted-foreground">Carregando checklist…</p>
                   ) : (
                     <PaymentChecklist
                       employees={employees.filter((e) => e.is_active)}

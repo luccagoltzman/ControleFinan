@@ -16,6 +16,7 @@ import {
   YAxis,
 } from 'recharts'
 import { PageHeader } from '../../components/PageHeader'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
@@ -205,6 +206,13 @@ export function DashboardPage() {
     return markers.sort((a, b) => b.revenue - a.revenue)
   }, [filteredSales, regionsQuery.data])
 
+  const dashboardInitialLoading =
+    !!activeOrgId &&
+    !productsQuery.isError &&
+    !salesQuery.isError &&
+    !regionsQuery.isError &&
+    (productsQuery.isPending || salesQuery.isPending || regionsQuery.isPending)
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -225,6 +233,17 @@ export function DashboardPage() {
         }
       />
 
+      {dashboardInitialLoading ? (
+        <InteractivePageLoader
+          variant="embedded"
+          message="Montando o dashboard…"
+          tips={[
+            'Carregando vendas, produtos e regiões do período…',
+            'Preparando gráficos, KPIs e mapa…',
+          ]}
+        />
+      ) : (
+        <>
       <Card className="border-border/60 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/50">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
@@ -513,6 +532,8 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </section>
+        </>
+      )}
     </div>
   )
 }

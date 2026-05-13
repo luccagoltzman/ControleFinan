@@ -42,3 +42,67 @@
     @apply mx-auto w-full max-w-7xl px-4;
   }
 }
+
+/* Loader de página: barras + aceleração ao hover (classe em InteractivePageLoader) */
+@keyframes cf-loader-bar {
+  0%,
+  100% {
+    transform: scaleY(0.2);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes cf-loader-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes cf-loader-spark {
+  0% {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.cf-loader-surface .cf-loader-bar {
+  transform-origin: bottom center;
+  animation: cf-loader-bar 1.15s ease-in-out infinite alternate;
+}
+
+.cf-loader-surface .cf-loader-bar:nth-child(1) {
+  animation-delay: 0s;
+}
+.cf-loader-surface .cf-loader-bar:nth-child(2) {
+  animation-delay: 0.08s;
+}
+.cf-loader-surface .cf-loader-bar:nth-child(3) {
+  animation-delay: 0.16s;
+}
+.cf-loader-surface .cf-loader-bar:nth-child(4) {
+  animation-delay: 0.24s;
+}
+.cf-loader-surface .cf-loader-bar:nth-child(5) {
+  animation-delay: 0.32s;
+}
+.cf-loader-surface .cf-loader-bar:nth-child(6) {
+  animation-delay: 0.4s;
+}
+.cf-loader-surface .cf-loader-bar:nth-child(7) {
+  animation-delay: 0.48s;
+}
+
+.cf-loader-surface:hover .cf-loader-bar {
+  animation-duration: 0.58s;
+}

@@ -1,4 +1,5 @@
 import { PageHeader } from '../../components/PageHeader'
+import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { useForm } from 'react-hook-form'
@@ -322,6 +323,22 @@ export function OrgPage() {
     }
   }
 
+  if (isLoading && memberships.length === 0) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title="Organização"
+          description="Gerencie a empresa/organização ativa e membros."
+        />
+        <InteractivePageLoader
+          variant="embedded"
+          message="Carregando organização…"
+          tips={['Buscando empresas vinculadas à sua conta…']}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -336,9 +353,7 @@ export function OrgPage() {
             <CardDescription>Escolha qual empresa está usando agora.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {isLoading ? (
-              <div className="text-sm text-muted-foreground">Carregando…</div>
-            ) : memberships.length === 0 ? (
+            {memberships.length === 0 ? (
               <div className="rounded-md border border-border bg-muted px-3 py-3 text-sm">
                 Você ainda não tem uma organização. Crie ao lado para começar.
               </div>
@@ -578,7 +593,7 @@ export function OrgPage() {
             <div className="border-t border-border pt-4">
               <div className="mb-3 text-sm font-medium text-foreground">Participantes</div>
               {orgMembersQuery.isLoading ? (
-                <div className="text-sm text-muted-foreground">Carregando lista…</div>
+                <p className="py-6 text-center text-sm text-muted-foreground">Carregando participantes…</p>
               ) : orgMembersQuery.isError ? (
                 <div className="text-sm text-destructive">
                   Erro ao carregar participantes.
