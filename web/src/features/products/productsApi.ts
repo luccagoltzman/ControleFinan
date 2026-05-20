@@ -27,7 +27,7 @@ export type Product = {
   sale_price_un: number | null
   target_profit_kg: number | null
   target_profit_un: number | null
-  /** Se preenchido, substitui o % padrão da organização na comissão sobre o pedido */
+  /** Se preenchido, substitui o % padrão da organização; comissão sobre (receita − alvo) da linha */
   commission_percent: number | null
 }
 

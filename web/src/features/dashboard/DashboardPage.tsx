@@ -25,6 +25,7 @@ import { useOrg } from '../../app/org/useOrg'
 import { fetchProducts } from '../products/productsApi'
 import { fetchRegions } from '../regions/regionsApi'
 import { fetchSales } from '../sales/salesApi'
+import { saleMatchesRegionFilter, saleRegionIds } from '../../lib/saleRegions'
 import { SalesRegionMap, type SalesRegionMarker } from './SalesRegionMap'
 import { BRAZIL_MAP_CENTER, suggestedAnchorForRegionName } from '../../lib/regionMapAnchors'
 
@@ -77,7 +78,7 @@ export function DashboardPage() {
     let s = salesQuery.data ?? []
     if (unitFilter !== 'all') s = s.filter((x) => x.qty_unit === unitFilter)
     if (productFilter !== 'all') s = s.filter((x) => x.product_id === productFilter)
-    if (regionFilter !== 'all') s = s.filter((x) => x.region_id === regionFilter)
+    if (regionFilter !== 'all') s = s.filter((x) => saleMatchesRegionFilter(x, regionFilter))
     return s
   }, [salesQuery.data, unitFilter, productFilter, regionFilter])
 
@@ -156,22 +157,31 @@ export function DashboardPage() {
     const regionsList = regionsQuery.data ?? []
     const byRegion = new Map<string, { revenue: number; profit: number; qty: number; orders: number }>()
     for (const s of filteredSales) {
-      if (!s.region_id) continue
-      const row = byRegion.get(s.region_id) ?? { revenue: 0, profit: 0, qty: 0, orders: 0 }
-      const rev = s.qty * s.unit_price
-      const cost = s.qty * s.unit_cost_snapshot
-      row.revenue += rev
-      row.profit += rev - cost
-      row.qty += s.qty
-      row.orders += 1
-      byRegion.set(s.region_id, row)
+      const regionIds = saleRegionIds(s)
+      if (regionIds.length === 0) continue
+      const share = regionIds.length > 1 ? 0.5 : 1
+      const rev = s.qty * s.unit_price * share
+      const cost = s.qty * s.unit_cost_snapshot * share
+      const profit = rev - cost
+      for (const rid of regionIds) {
+        const row = byRegion.get(rid) ?? { revenue: 0, profit: 0, qty: 0, orders: 0 }
+        row.revenue += rev
+        row.profit += profit
+        row.qty += s.qty * share
+        row.orders += share
+        byRegion.set(rid, row)
+      }
     }
 
     let unknownIdx = 0
     const markers: SalesRegionMarker[] = []
     for (const [regionId, agg] of byRegion) {
       const reg = regionsList.find((r) => r.id === regionId)
-      const saleName = filteredSales.find((x) => x.region_id === regionId)?.region?.name
+      const matchSale = filteredSales.find((x) => x.region_id === regionId || x.region_id_2 === regionId)
+      const saleName =
+        matchSale?.region_id === regionId
+          ? matchSale.region?.name
+          : matchSale?.region_secondary?.name
       const name = reg?.name ?? saleName ?? 'Região'
       let lat = reg?.map_lat ?? null
       let lng = reg?.map_lng ?? null
@@ -288,14 +298,19 @@ export function DashboardPage() {
             >
               <option value="all">Todas</option>
               {Array.from(
-                new Map((salesQuery.data ?? []).map((s) => [s.region_id ?? 'none', s.region?.name ?? 'Sem região'])).entries(),
-              )
-                .filter(([id]) => id !== 'none')
-                .map(([id, name]) => (
-                  <option key={id} value={id}>
-                    {name}
-                  </option>
-                ))}
+                (() => {
+                  const m = new Map<string, string>()
+                  for (const s of salesQuery.data ?? []) {
+                    if (s.region_id) m.set(s.region_id, s.region?.name ?? 'Região')
+                    if (s.region_id_2) m.set(s.region_id_2, s.region_secondary?.name ?? 'Região')
+                  }
+                  return m.entries()
+                })(),
+              ).map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
             </select>
           </div>
           <div className="md:col-span-6 flex items-center">

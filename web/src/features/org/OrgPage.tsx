@@ -706,7 +706,7 @@ export function OrgPage() {
           <CardHeader>
             <CardTitle>Comissão do representante</CardTitle>
             <CardDescription>
-              Percentual sobre o valor total de cada pedido (quantidade × preço de venda). Você pode definir um valor
+              Percentual sobre (receita da linha − alvo de lucro) em cada venda. Você pode definir um valor
               diferente por produto na edição do produto.
             </CardDescription>
           </CardHeader>

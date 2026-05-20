@@ -26,6 +26,9 @@ import { fetchProducts, type Product } from '../products/productsApi'
 import { createSaleOrder, deleteSale, deleteSaleGroup, fetchSales, type Sale } from './salesApi'
 import { SaleAttachmentsSection } from './SaleAttachmentsSection'
 import { fetchRegions } from '../regions/regionsApi'
+import { computeSaleCommissionAmount, effectiveCommissionPercent } from '../../lib/saleCommission'
+import { formatSaleRegions } from '../../lib/saleRegions'
+import { formatQueryError } from '../../lib/formatQueryError'
 import { Plus, Trash2 } from 'lucide-react'
 
 type SaleLineDraft = {
@@ -46,12 +49,6 @@ function newSaleLine(): SaleLineDraft {
     unit_price: '',
     unit_cost_snapshot: '',
   }
-}
-
-function effectiveCommissionPercent(product: Product | null, orgDefault: number | null): number {
-  if (!product) return 0
-  if (product.commission_percent != null) return product.commission_percent
-  return orgDefault ?? 0
 }
 
 function monthRange(monthYYYYMM: string) {
@@ -82,6 +79,7 @@ export function SalesPage() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [regionId, setRegionId] = useState('')
+  const [regionId2, setRegionId2] = useState('')
   const [soldDate, setSoldDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<SaleLineDraft[]>(() => [newSaleLine()])
@@ -116,6 +114,7 @@ export function SalesPage() {
   const createMutation = useMutation({
     mutationFn: (input: {
       region_id: string | null
+      region_id_2: string | null
       sold_at: string
       notes: string | null
       lines: Array<{
@@ -132,6 +131,7 @@ export function SalesPage() {
         organization_id: activeOrgId!,
         order_id: crypto.randomUUID(),
         region_id: input.region_id,
+        region_id_2: input.region_id_2,
         sold_at: input.sold_at,
         notes: input.notes,
         lines: input.lines,
@@ -225,27 +225,37 @@ export function SalesPage() {
         return
       }
       const prod = products.find((p) => p.id === l.product_id) ?? null
-      const commissionPct = effectiveCommissionPercent(prod, orgDefaultCommission)
-      const revenue = qty * unitPrice
-      const commissionAmount = Math.round((revenue * commissionPct) / 100 * 100) / 100
+      const comm = computeSaleCommissionAmount({
+        qty,
+        unitPrice,
+        qtyUnit: l.qty_unit,
+        product: prod,
+        orgDefaultPercent: orgDefaultCommission,
+      })
       payloadLines.push({
         product_id: l.product_id,
         qty,
         qty_unit: l.qty_unit,
         unit_price: unitPrice,
         unit_cost_snapshot: unitCost,
-        commission_percent_snapshot: commissionPct,
-        commission_amount: commissionAmount,
+        commission_percent_snapshot: comm.commissionPercent,
+        commission_amount: comm.commissionAmount,
       })
     }
 
     const sold_at = new Date(`${soldDate}T12:00:00`).toISOString()
     const rid = regionId.trim() ? regionId.trim() : null
+    const rid2 = regionId2.trim() ? regionId2.trim() : null
+    if (rid && rid2 && rid === rid2) {
+      setErrorMsg('Escolha dois CDs/regiões diferentes.')
+      return
+    }
     const notesTrim = notes.trim() ? notes.trim() : null
 
     try {
       await createMutation.mutateAsync({
         region_id: rid,
+        region_id_2: rid2,
         sold_at,
         notes: notesTrim,
         lines: payloadLines,
@@ -282,7 +292,7 @@ export function SalesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Vendas"
-        description="Registre pedidos com um ou vários produtos; comissão continua sobre a receita de cada linha (qtd × preço)."
+        description="Pedidos com vários produtos e até dois CDs. Comissão sobre (receita − alvo de lucro) de cada linha."
         right={
           <label className="block">
             <div className="mb-1 text-xs font-medium text-muted-foreground">Mês</div>
@@ -326,7 +336,7 @@ export function SalesPage() {
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
                 <div className="md:col-span-4">
-                  <Label>Região</Label>
+                  <Label>Região / CD 1</Label>
                   <select
                     className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                     value={regionId}
@@ -340,11 +350,25 @@ export function SalesPage() {
                     ))}
                   </select>
                 </div>
-                <div className="md:col-span-5">
+                <div className="md:col-span-4">
+                  <Label>Região / CD 2 (opcional)</Label>
+                  <select
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={regionId2}
+                    onChange={(e) => setRegionId2(e.target.value)}
+                  >
+                    <option value="">(Nenhum)</option>
+                    {(regionsQuery.data ?? []).map((r) => (
+                      <option key={r.id} value={r.id} disabled={regionId === r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-4">
                   <Label>Data</Label>
                   <Input className="mt-1" type="date" value={soldDate} onChange={(e) => setSoldDate(e.target.value)} />
                 </div>
-                <div className="md:col-span-3" />
                 <div className="md:col-span-12">
                   <Label>Observações (todo o pedido)</Label>
                   <Textarea className="mt-1" placeholder="Cliente, NF, detalhes…" value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -452,9 +476,47 @@ export function SalesPage() {
                         </div>
                         {selectedProduct ? (
                           <div className="md:col-span-12 rounded-md border border-border bg-background/80 px-3 py-2 text-xs text-muted-foreground">
-                            Comissão % (esta linha):{' '}
-                            {effectiveCommissionPercent(selectedProduct, orgDefaultCommission).toFixed(2).replace('.', ',')}%
-                            {selectedProduct.commission_percent != null ? ' (produto)' : ' (organização)'}
+                            {(() => {
+                              const q = parseNumberPtBr(line.qty ?? '')
+                              const p = parseMoneyPtBr(line.unit_price ?? '')
+                              const pct = effectiveCommissionPercent(selectedProduct, orgDefaultCommission)
+                              if (q == null || p == null || q <= 0) {
+                                return (
+                                  <>
+                                    Comissão %: {pct.toFixed(2).replace('.', ',')}%
+                                    {selectedProduct.commission_percent != null ? ' (produto)' : ' (organização)'}
+                                    {' — '}
+                                    informe qtd e preço para ver a base (receita − alvo).
+                                  </>
+                                )
+                              }
+                              const comm = computeSaleCommissionAmount({
+                                qty: q,
+                                unitPrice: p,
+                                qtyUnit: line.qty_unit,
+                                product: selectedProduct,
+                                orgDefaultPercent: orgDefaultCommission,
+                              })
+                              return (
+                                <>
+                                  <div>
+                                    Comissão {pct.toFixed(2).replace('.', ',')}% sobre base{' '}
+                                    <span className="font-medium text-foreground">{formatMoney(comm.commissionBase)}</span>
+                                    {comm.targetTotal != null ? (
+                                      <>
+                                        {' '}
+                                        (receita {formatMoney(comm.revenue)} − alvo {formatMoney(comm.targetTotal)})
+                                      </>
+                                    ) : (
+                                      <> (receita {formatMoney(comm.revenue)}, sem alvo cadastrado)</>
+                                    )}
+                                  </div>
+                                  <div className="mt-1 font-semibold text-foreground">
+                                    Comissão estimada: {formatMoney(comm.commissionAmount)}
+                                  </div>
+                                </>
+                              )
+                            })()}
                           </div>
                         ) : null}
                       </div>
@@ -502,7 +564,7 @@ export function SalesPage() {
             <div className="text-sm text-rose-700">
               Erro ao carregar vendas.{' '}
               <span className="text-muted-foreground">
-                {(salesQuery.error instanceof Error ? salesQuery.error.message : String(salesQuery.error)) ?? ''}
+                {formatQueryError(salesQuery.error)}
               </span>
             </div>
           ) : orderGroups.length === 0 ? (
@@ -619,7 +681,25 @@ function SaleLineReport({
 
       <div className="rounded-lg border border-border bg-card p-4 text-sm">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">% comissão (no lançamento)</span>
+          <span className="text-muted-foreground">Receita (linha)</span>
+          <span className="font-medium">{formatMoney(revenue)}</span>
+        </div>
+        {targetProfitTotal != null ? (
+          <>
+            <div className="mt-2 flex justify-between">
+              <span className="text-muted-foreground">Alvo (total)</span>
+              <span className="font-medium">{formatMoney(targetProfitTotal)}</span>
+            </div>
+            <div className="mt-2 flex justify-between">
+              <span className="text-muted-foreground">Base da comissão (receita − alvo)</span>
+              <span className="font-medium">{formatMoney(Math.max(0, revenue - targetProfitTotal))}</span>
+            </div>
+          </>
+        ) : (
+          <div className="mt-2 text-xs text-muted-foreground">Sem alvo: comissão calculada sobre a receita.</div>
+        )}
+        <div className="mt-2 flex justify-between">
+          <span className="text-muted-foreground">% comissão</span>
           <span className="font-medium">{sale.commission_percent_snapshot.toFixed(2).replace('.', ',')}%</span>
         </div>
         <div className="mt-2 flex justify-between">
@@ -711,7 +791,7 @@ function SaleOrderRow({
               {formatMoney(first.unit_cost_snapshot)}
             </>
           )}
-          {first.region?.name ? ` • Região ${first.region.name}` : ''}
+          {formatSaleRegions(first) ? ` • ${formatSaleRegions(first)}` : ''}
           {first.notes ? ` • ${first.notes}` : ''}
         </div>
       </div>

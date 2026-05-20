@@ -43,11 +43,14 @@ export function useOrgPwaBranding(activeOrganization: OrgSummary | null) {
     }
 
     const name = activeOrganization.name?.trim() || 'Controle Finan'
+    const origin = window.location.origin
     const logoUrlBase = getOrgLogoPublicUrl(activeOrganization.logo_storage_path)
     const logoUrl = logoUrlBase
       ? `${logoUrlBase}?v=${encodeURIComponent(activeOrganization.branding_updated_at)}`
       : null
+    const faviconAbs = `${origin}/favicon.svg`
 
+    // Manifest em blob: URLs relativas (/…) são inválidas — usar origem absoluta.
     const manifest = {
       name,
       short_name: name,
@@ -56,8 +59,8 @@ export function useOrgPwaBranding(activeOrganization: OrgSummary | null) {
       background_color: '#ffffff',
       display: 'standalone',
       orientation: 'portrait-primary',
-      scope: '/',
-      start_url: '/',
+      scope: `${origin}/`,
+      start_url: `${origin}/`,
       lang: 'pt-BR',
       categories: ['finance', 'productivity'],
       icons: [
@@ -76,7 +79,7 @@ export function useOrgPwaBranding(activeOrganization: OrgSummary | null) {
             ]
           : []),
         {
-          src: '/favicon.svg',
+          src: faviconAbs,
           sizes: 'any',
           type: 'image/svg+xml',
           purpose: 'any',

@@ -8,45 +8,36 @@ export type Sale = {
   order_id: string | null
   product_id: string
   region_id: string | null
+  /** Segundo CD/região no mesmo pedido (opcional). */
+  region_id_2: string | null
   sold_at: string
   qty: number
   qty_unit: 'kg' | 'un'
   unit_price: number
   unit_cost_snapshot: number
-  /** % sobre receita (pedido) usado no lançamento */
+  /** % sobre base (receita − alvo), gravado no lançamento */
   commission_percent_snapshot: number
   commission_amount: number
   notes: string | null
   created_at: string
   product?: { name: string } | null
   region?: { name: string } | null
+  region_secondary?: { name: string } | null
 }
 
-export async function fetchSales(input: {
-  organizationId: string
-  fromIso?: string
-  toIso?: string
-}): Promise<Sale[]> {
-  let q = supabase
-    .from('sales')
-    .select(
-      'id, organization_id, order_id, product_id, region_id, sold_at, qty, qty_unit, unit_price, unit_cost_snapshot, commission_percent_snapshot, commission_amount, notes, created_at, products ( name ), regions ( name )',
-    )
-    .eq('organization_id', input.organizationId)
-    .order('sold_at', { ascending: false })
+const SALE_COLUMNS_BASE =
+  'id, organization_id, order_id, product_id, region_id, sold_at, qty, qty_unit, unit_price, unit_cost_snapshot, commission_percent_snapshot, commission_amount, notes, created_at, products ( name ), regions!region_id ( name )'
 
-  if (input.fromIso) q = q.gte('sold_at', input.fromIso)
-  if (input.toIso) q = q.lt('sold_at', input.toIso)
+const SALE_COLUMNS_WITH_REGION_2 = `${SALE_COLUMNS_BASE.replace('region_id,', 'region_id, region_id_2,')}, region_secondary:regions!region_id_2 ( name )`
 
-  const { data, error } = await q
-  if (error) throw error
-
-  return (data ?? []).map((row) => ({
+function mapSaleRow(row: Record<string, unknown>): Sale {
+  return {
     id: row.id as string,
     organization_id: row.organization_id as string,
     order_id: (row.order_id as string | null | undefined) ?? null,
     product_id: row.product_id as string,
     region_id: (row.region_id as string | null) ?? null,
+    region_id_2: (row.region_id_2 as string | null | undefined) ?? null,
     sold_at: row.sold_at as string,
     qty: row.qty as number,
     qty_unit: (row.qty_unit as 'kg' | 'un') ?? 'kg',
@@ -56,9 +47,51 @@ export async function fetchSales(input: {
     commission_amount: Number(row.commission_amount ?? 0),
     notes: (row.notes as string | null) ?? null,
     created_at: row.created_at as string,
-    product: (row as unknown as { products?: { name: string } | null }).products ?? null,
-    region: (row as unknown as { regions?: { name: string } | null }).regions ?? null,
-  }))
+    product: (row.products as { name: string } | null) ?? null,
+    region: (row.regions as { name: string } | null) ?? null,
+    region_secondary: (row.region_secondary as { name: string } | null) ?? null,
+  }
+}
+
+function isRegion2SchemaError(err: { message?: string } | null): boolean {
+  const msg = (err?.message ?? '').toLowerCase()
+  return (
+    msg.includes('region_id_2') ||
+    msg.includes('region_secondary') ||
+    msg.includes('sales_region_id_2') ||
+    msg.includes('could not find') ||
+    msg.includes('schema cache')
+  )
+}
+
+export async function fetchSales(input: {
+  organizationId: string
+  fromIso?: string
+  toIso?: string
+}): Promise<Sale[]> {
+  async function run(select: string) {
+    let q = supabase
+      .from('sales')
+      .select(select)
+      .eq('organization_id', input.organizationId)
+      .order('sold_at', { ascending: false })
+
+    if (input.fromIso) q = q.gte('sold_at', input.fromIso)
+    if (input.toIso) q = q.lt('sold_at', input.toIso)
+    return q
+  }
+
+  let { data, error } = await run(SALE_COLUMNS_WITH_REGION_2)
+
+  if (error && isRegion2SchemaError(error)) {
+    const legacy = await run(SALE_COLUMNS_BASE)
+    data = legacy.data
+    error = legacy.error
+  }
+
+  if (error) throw error
+
+  return (data ?? []).map((row) => mapSaleRow(row as unknown as Record<string, unknown>))
 }
 
 export async function createSale(input: {
@@ -66,6 +99,7 @@ export async function createSale(input: {
   order_id?: string | null
   product_id: string
   region_id: string | null
+  region_id_2?: string | null
   sold_at: string
   qty: number
   qty_unit: 'kg' | 'un'
@@ -75,8 +109,10 @@ export async function createSale(input: {
   commission_amount: number
   notes: string | null
 }) {
-  const { order_id, ...rest } = input
-  const row = order_id != null && order_id !== '' ? { ...rest, order_id } : rest
+  const { order_id, region_id_2, ...rest } = input
+  const row: Record<string, unknown> = { ...rest }
+  if (order_id != null && order_id !== '') row.order_id = order_id
+  if (region_id_2 != null && region_id_2 !== '') row.region_id_2 = region_id_2
   const { error } = await supabase.from('sales').insert(row)
   if (error) throw error
 }
@@ -85,6 +121,7 @@ export async function createSaleOrder(input: {
   organization_id: string
   order_id: string
   region_id: string | null
+  region_id_2: string | null
   sold_at: string
   notes: string | null
   lines: Array<{
@@ -102,6 +139,7 @@ export async function createSaleOrder(input: {
     organization_id: input.organization_id,
     order_id: input.order_id,
     region_id: input.region_id,
+    region_id_2: input.region_id_2 || null,
     sold_at: input.sold_at,
     notes: input.notes,
     product_id: l.product_id,
@@ -112,7 +150,17 @@ export async function createSaleOrder(input: {
     commission_percent_snapshot: l.commission_percent_snapshot,
     commission_amount: l.commission_amount,
   }))
-  const { error } = await supabase.from('sales').insert(rows)
+  let { error } = await supabase.from('sales').insert(rows)
+  if (error && isRegion2SchemaError(error) && input.region_id_2) {
+    throw new Error(
+      'Segunda região não disponível no banco. Aplique a migration 022_sales_second_region.sql no Supabase.',
+    )
+  }
+  if (error && isRegion2SchemaError(error)) {
+    const legacyRows = rows.map(({ region_id_2: _r2, ...r }) => r)
+    const retry = await supabase.from('sales').insert(legacyRows)
+    error = retry.error
+  }
   if (error) throw error
 }
 
@@ -141,4 +189,3 @@ export async function deleteSale(input: { organization_id: string; id: string })
     .eq('id', input.id)
   if (error) throw error
 }
-
