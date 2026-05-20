@@ -78,6 +78,7 @@ export async function fetchSales(input: {
 
     if (input.fromIso) q = q.gte('sold_at', input.fromIso)
     if (input.toIso) q = q.lt('sold_at', input.toIso)
+    if (!input.fromIso && !input.toIso) q = q.limit(10000)
     return q
   }
 

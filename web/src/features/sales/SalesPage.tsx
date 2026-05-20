@@ -67,11 +67,14 @@ function newSaleLine(): SaleLineDraft {
   }
 }
 
-function monthRange(monthYYYYMM: string) {
+function soldAtMonthKey(soldAt: string): string {
+  return soldAt.slice(0, 7)
+}
+
+function formatMonthLabel(monthYYYYMM: string): string {
   const [y, m] = monthYYYYMM.split('-').map(Number)
-  const from = new Date(Date.UTC(y!, (m! - 1)!, 1, 0, 0, 0))
-  const to = new Date(Date.UTC(y!, m!, 1, 0, 0, 0))
-  return { fromIso: from.toISOString(), toIso: to.toISOString() }
+  if (!y || !m) return monthYYYYMM
+  return new Date(y, m - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
 }
 
 /** Agrupa linhas pelo pedido (`order_id`) ou cada venda antiga isolada (`id`). */
@@ -90,7 +93,8 @@ function groupSalesByOrder(sales: Sale[]) {
 
 export function SalesPage() {
   const { activeOrgId, memberships } = useOrg()
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  /** Vazio = todas as vendas; preenchido = busca rápida por mês (filtro local). */
+  const [monthFilter, setMonthFilter] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const [orderDialog, setOrderDialog] = useState<OrderDialogState | null>(null)
@@ -99,8 +103,6 @@ export function SalesPage() {
   const [soldDate, setSoldDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<SaleLineDraft[]>(() => [newSaleLine()])
-
-  const { fromIso, toIso } = useMemo(() => monthRange(month), [month])
 
   const orgDefaultCommission = useMemo(() => {
     const m = memberships.find((x) => x.organization_id === activeOrgId)
@@ -120,10 +122,21 @@ export function SalesPage() {
   })
 
   const salesQuery = useQuery({
-    queryKey: ['sales', { org: activeOrgId, month }],
-    queryFn: () => fetchSales({ organizationId: activeOrgId!, fromIso, toIso }),
+    queryKey: ['sales', { org: activeOrgId, all: true }],
+    queryFn: () => fetchSales({ organizationId: activeOrgId! }),
     enabled: !!activeOrgId,
   })
+
+  const filteredSales = useMemo(() => {
+    const all = salesQuery.data ?? []
+    if (!monthFilter) return all
+    return all.filter((s) => soldAtMonthKey(s.sold_at) === monthFilter)
+  }, [salesQuery.data, monthFilter])
+
+  const totalOrderCount = useMemo(
+    () => groupSalesByOrder(salesQuery.data ?? []).length,
+    [salesQuery.data],
+  )
 
   const products = productsQuery.data ?? []
 
@@ -346,7 +359,7 @@ export function SalesPage() {
   const isEditMode = orderDialog?.mode === 'edit'
 
   const totals = useMemo(() => {
-    const sales = salesQuery.data ?? []
+    const sales = filteredSales
     const revenue = sales.reduce((acc, s) => acc + s.qty * s.unit_price, 0)
     const cost = sales.reduce((acc, s) => acc + s.qty * s.unit_cost_snapshot, 0)
     const profit = revenue - cost
@@ -363,9 +376,9 @@ export function SalesPage() {
     )
     const profitPlusCommission = profit + commission
     return { revenue, cost, profit, margin, commission, profitPlusCommission }
-  }, [salesQuery.data])
+  }, [filteredSales])
 
-  const orderGroups = useMemo(() => groupSalesByOrder(salesQuery.data ?? []), [salesQuery.data])
+  const orderGroups = useMemo(() => groupSalesByOrder(filteredSales), [filteredSales])
 
   return (
     <div className="space-y-6">
@@ -373,14 +386,22 @@ export function SalesPage() {
         title="Vendas"
         description="Pedidos com vários produtos e até dois CDs. Comissão sobre o custo total de cada linha."
         right={
-          <label className="block">
-            <div className="mb-1 text-xs font-medium text-muted-foreground">Mês</div>
-            <Input
-              type="month"
-              value={month}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setMonth(e.target.value)}
-            />
-          </label>
+          <div className="flex flex-wrap items-end justify-end gap-2">
+            <label className="block">
+              <div className="mb-1 text-xs font-medium text-muted-foreground">Busca por mês</div>
+              <Input
+                type="month"
+                value={monthFilter}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setMonthFilter(e.target.value)}
+                className="w-[min(100%,11rem)]"
+              />
+            </label>
+            {monthFilter ? (
+              <Button type="button" variant="outline" size="sm" className="h-10" onClick={() => setMonthFilter('')}>
+                Ver todas
+              </Button>
+            ) : null}
+          </div>
         }
       />
 
@@ -388,7 +409,7 @@ export function SalesPage() {
         <InteractivePageLoader
           variant="embedded"
           message="Carregando vendas…"
-          tips={['Somando pedidos e comissões do período…', 'Organizando linhas por data…']}
+          tips={['Buscando todos os pedidos da organização…', 'Organizando linhas por data…']}
         />
       ) : (
         <>
@@ -632,6 +653,19 @@ export function SalesPage() {
         </CardHeader>
       </Card>
 
+      {monthFilter ? (
+        <p className="text-sm text-muted-foreground">
+          Filtro ativo: <span className="font-medium text-foreground">{formatMonthLabel(monthFilter)}</span>
+          {' — '}
+          {orderGroups.length} de {totalOrderCount} pedido{totalOrderCount === 1 ? '' : 's'}
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {totalOrderCount} pedido{totalOrderCount === 1 ? '' : 's'} no total. Use &quot;Busca por mês&quot; para
+          refinar.
+        </p>
+      )}
+
       <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Kpi title="Faturamento" value={formatMoney(totals.revenue)} />
         <Kpi title="Custo (snapshot)" value={formatMoney(totals.cost)} />
@@ -643,7 +677,12 @@ export function SalesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Vendas do mês</CardTitle>
+          <CardTitle>Todos os pedidos</CardTitle>
+          <div className="text-sm text-muted-foreground">
+            {monthFilter
+              ? `Exibindo pedidos de ${formatMonthLabel(monthFilter)}.`
+              : 'Histórico completo da organização.'}
+          </div>
         </CardHeader>
         <CardContent>
           {salesQuery.isError ? (
@@ -653,10 +692,17 @@ export function SalesPage() {
                 {formatQueryError(salesQuery.error)}
               </span>
             </div>
+          ) : (salesQuery.data ?? []).length === 0 ? (
+            <div className="text-sm text-muted-foreground">Nenhuma venda registrada ainda.</div>
           ) : orderGroups.length === 0 ? (
-            <div className="text-sm text-muted-foreground">Nenhuma venda registrada neste mês.</div>
+            <div className="text-sm text-muted-foreground">
+              Nenhum pedido em {formatMonthLabel(monthFilter)}.{' '}
+              <button type="button" className="font-medium text-primary underline" onClick={() => setMonthFilter('')}>
+                Ver todas
+              </button>
+            </div>
           ) : (
-            <div className="divide-y divide-border rounded-md border border-border">
+            <div className="max-h-[min(70vh,720px)] divide-y divide-border overflow-y-auto rounded-md border border-border">
               {orderGroups.map((groupLines) => (
                 <SaleOrderRow
                   key={groupLines[0]!.order_id ?? groupLines[0]!.id}
