@@ -34,7 +34,11 @@ import {
 } from './salesApi'
 import { SaleAttachmentsSection } from './SaleAttachmentsSection'
 import { fetchRegions } from '../regions/regionsApi'
-import { computeSaleCommissionAmount, effectiveCommissionPercent } from '../../lib/saleCommission'
+import {
+  commissionAmountFromSaleLine,
+  computeSaleCommissionAmount,
+  effectiveCommissionPercent,
+} from '../../lib/saleCommission'
 import { formatSaleRegions } from '../../lib/saleRegions'
 import { formatQueryError } from '../../lib/formatQueryError'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
@@ -347,7 +351,16 @@ export function SalesPage() {
     const cost = sales.reduce((acc, s) => acc + s.qty * s.unit_cost_snapshot, 0)
     const profit = revenue - cost
     const margin = revenue > 0 ? profit / revenue : 0
-    const commission = sales.reduce((acc, s) => acc + s.commission_amount, 0)
+    const commission = sales.reduce(
+      (acc, s) =>
+        acc +
+        commissionAmountFromSaleLine({
+          qty: s.qty,
+          unitCostSnapshot: s.unit_cost_snapshot,
+          commissionPercentSnapshot: s.commission_percent_snapshot,
+        }),
+      0,
+    )
     const profitPlusCommission = profit + commission
     return { revenue, cost, profit, margin, commission, profitPlusCommission }
   }, [salesQuery.data])
@@ -694,6 +707,11 @@ function SaleLineReport({
   const revenue = sale.qty * sale.unit_price
   const cost = sale.qty * sale.unit_cost_snapshot
   const profit = revenue - cost
+  const commission = commissionAmountFromSaleLine({
+    qty: sale.qty,
+    unitCostSnapshot: sale.unit_cost_snapshot,
+    commissionPercentSnapshot: sale.commission_percent_snapshot,
+  })
   const unit = sale.qty_unit
   const targetProfitPerUnit =
     unit === 'kg' ? product?.target_profit_kg ?? null : unit === 'un' ? product?.target_profit_un ?? null : null
@@ -753,7 +771,7 @@ function SaleLineReport({
         </div>
         <div className="mt-3 flex justify-between border-t border-border pt-3">
           <span className="font-medium text-foreground">Lucro + comissão</span>
-          <span className="font-semibold text-emerald-700">{formatMoney(profit + sale.commission_amount)}</span>
+          <span className="font-semibold text-emerald-700">{formatMoney(profit + commission)}</span>
         </div>
       </div>
 
@@ -768,7 +786,7 @@ function SaleLineReport({
         </div>
         <div className="mt-2 flex justify-between">
           <span className="text-muted-foreground">Valor da comissão</span>
-          <span className="font-semibold">{formatMoney(sale.commission_amount)}</span>
+          <span className="font-semibold">{formatMoney(commission)}</span>
         </div>
       </div>
 
@@ -836,7 +854,16 @@ function SaleOrderRow({
   const revenue = lines.reduce((acc, s) => acc + s.qty * s.unit_price, 0)
   const cost = lines.reduce((acc, s) => acc + s.qty * s.unit_cost_snapshot, 0)
   const profit = revenue - cost
-  const commission = lines.reduce((acc, s) => acc + s.commission_amount, 0)
+  const commission = lines.reduce(
+    (acc, s) =>
+      acc +
+      commissionAmountFromSaleLine({
+        qty: s.qty,
+        unitCostSnapshot: s.unit_cost_snapshot,
+        commissionPercentSnapshot: s.commission_percent_snapshot,
+      }),
+    0,
+  )
   const profitPlusCommission = profit + commission
 
   const titleBits = lines.map((s) => s.product?.name ?? 'Produto').join(' + ')

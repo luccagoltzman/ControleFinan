@@ -25,6 +25,7 @@ import { useOrg } from '../../app/org/useOrg'
 import { fetchProducts } from '../products/productsApi'
 import { fetchRegions } from '../regions/regionsApi'
 import { fetchSales } from '../sales/salesApi'
+import { commissionAmountFromSaleLine } from '../../lib/saleCommission'
 import { saleMatchesRegionFilter, saleRegionIds } from '../../lib/saleRegions'
 import { SalesRegionMap, type SalesRegionMarker } from './SalesRegionMap'
 import { BRAZIL_MAP_CENTER, suggestedAnchorForRegionName } from '../../lib/regionMapAnchors'
@@ -103,7 +104,16 @@ export function DashboardPage() {
       if (saleProfit >= t) hitTarget += 1
     }
 
-    const commissionTotal = filteredSales.reduce((acc, s) => acc + s.commission_amount, 0)
+    const commissionTotal = filteredSales.reduce(
+      (acc, s) =>
+        acc +
+        commissionAmountFromSaleLine({
+          qty: s.qty,
+          unitCostSnapshot: s.unit_cost_snapshot,
+          commissionPercentSnapshot: s.commission_percent_snapshot,
+        }),
+      0,
+    )
     const profitPlusCommission = profit + commissionTotal
 
     return { revenue, cost, profit, margin, targetTotal, withTarget, hitTarget, commissionTotal, profitPlusCommission }
@@ -534,7 +544,12 @@ export function DashboardPage() {
                 <tbody>
                   {filteredSales.slice(0, 40).map((s) => {
                     const profit = s.qty * (s.unit_price - s.unit_cost_snapshot)
-                    const profitPlusCommission = profit + s.commission_amount
+                    const commission = commissionAmountFromSaleLine({
+                      qty: s.qty,
+                      unitCostSnapshot: s.unit_cost_snapshot,
+                      commissionPercentSnapshot: s.commission_percent_snapshot,
+                    })
+                    const profitPlusCommission = profit + commission
                     return (
                       <tr key={s.id} className="border-t border-border hover:bg-muted/30">
                         <td className="p-2">{new Date(s.sold_at).toISOString().slice(0, 10)}</td>
@@ -544,7 +559,7 @@ export function DashboardPage() {
                         <td className="p-2 text-right">{formatMoney(s.unit_price)}</td>
                         <td className="p-2 text-right">{formatMoney(s.unit_cost_snapshot)}</td>
                         <td className="p-2 text-right">{formatMoney(profit)}</td>
-                        <td className="p-2 text-right">{formatMoney(s.commission_amount)}</td>
+                        <td className="p-2 text-right">{formatMoney(commission)}</td>
                         <td className="p-2 text-right font-medium text-emerald-800">{formatMoney(profitPlusCommission)}</td>
                       </tr>
                     )

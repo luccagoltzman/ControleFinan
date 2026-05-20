@@ -44,6 +44,24 @@ export function computeSaleCommissionAmount(input: {
     qty: input.qty,
     unitCostSnapshot: input.unitCostSnapshot,
   })
-  const commissionAmount = Math.round((base * commissionPercent) / 100 * 100) / 100
+  const commissionAmount = commissionAmountFromBase(base, commissionPercent)
   return { commissionPercent, commissionAmount, totalCost, commissionBase: base }
+}
+
+/** Valor da comissão a partir da base e do percentual (arredondamento em centavos). */
+export function commissionAmountFromBase(base: number, commissionPercent: number): number {
+  return Math.round((Math.max(0, base) * commissionPercent) / 100 * 100) / 100
+}
+
+/**
+ * Comissão da linha a partir dos snapshots gravados (custo × % da venda).
+ * Use na listagem/KPIs para ficar alinhado ao custo exibido; ao salvar, `computeSaleCommissionAmount` grava o valor.
+ */
+export function commissionAmountFromSaleLine(input: {
+  qty: number
+  unitCostSnapshot: number
+  commissionPercentSnapshot: number
+}): number {
+  const base = input.qty * input.unitCostSnapshot
+  return commissionAmountFromBase(base, input.commissionPercentSnapshot)
 }
