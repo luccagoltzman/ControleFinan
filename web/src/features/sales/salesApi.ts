@@ -15,7 +15,7 @@ export type Sale = {
   qty_unit: 'kg' | 'un'
   unit_price: number
   unit_cost_snapshot: number
-  /** % sobre base (receita − alvo), gravado no lançamento */
+  /** % sobre custo total da linha, gravado no lançamento */
   commission_percent_snapshot: number
   commission_amount: number
   notes: string | null

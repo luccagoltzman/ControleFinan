@@ -250,8 +250,7 @@ export function SalesPage() {
       const prod = products.find((p) => p.id === l.product_id) ?? null
       const comm = computeSaleCommissionAmount({
         qty,
-        unitPrice,
-        qtyUnit: l.qty_unit,
+        unitCostSnapshot: unitCost,
         product: prod,
         orgDefaultPercent: orgDefaultCommission,
       })
@@ -349,7 +348,8 @@ export function SalesPage() {
     const profit = revenue - cost
     const margin = revenue > 0 ? profit / revenue : 0
     const commission = sales.reduce((acc, s) => acc + s.commission_amount, 0)
-    return { revenue, cost, profit, margin, commission }
+    const profitPlusCommission = profit + commission
+    return { revenue, cost, profit, margin, commission, profitPlusCommission }
   }, [salesQuery.data])
 
   const orderGroups = useMemo(() => groupSalesByOrder(salesQuery.data ?? []), [salesQuery.data])
@@ -358,7 +358,7 @@ export function SalesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Vendas"
-        description="Pedidos com vários produtos e até dois CDs. Comissão sobre (receita − alvo de lucro) de cada linha."
+        description="Pedidos com vários produtos e até dois CDs. Comissão sobre o custo total de cada linha."
         right={
           <label className="block">
             <div className="mb-1 text-xs font-medium text-muted-foreground">Mês</div>
@@ -550,38 +550,31 @@ export function SalesPage() {
                           <div className="md:col-span-12 rounded-md border border-border bg-background/80 px-3 py-2 text-xs text-muted-foreground">
                             {(() => {
                               const q = parseNumberPtBr(line.qty ?? '')
-                              const p = parseMoneyPtBr(line.unit_price ?? '')
+                              const costUnit = parseMoneyPtBr(line.unit_cost_snapshot ?? '')
                               const pct = effectiveCommissionPercent(selectedProduct, orgDefaultCommission)
-                              if (q == null || p == null || q <= 0) {
+                              if (q == null || costUnit == null || q <= 0) {
                                 return (
                                   <>
                                     Comissão %: {pct.toFixed(2).replace('.', ',')}%
                                     {selectedProduct.commission_percent != null ? ' (produto)' : ' (organização)'}
                                     {' — '}
-                                    informe qtd e preço para ver a base (receita − alvo).
+                                    informe qtd e custo para ver a base (custo total).
                                   </>
                                 )
                               }
                               const comm = computeSaleCommissionAmount({
                                 qty: q,
-                                unitPrice: p,
-                                qtyUnit: line.qty_unit,
+                                unitCostSnapshot: costUnit,
                                 product: selectedProduct,
                                 orgDefaultPercent: orgDefaultCommission,
                               })
                               return (
                                 <>
                                   <div>
-                                    Comissão {pct.toFixed(2).replace('.', ',')}% sobre base{' '}
+                                    Comissão {pct.toFixed(2).replace('.', ',')}% sobre custo total{' '}
                                     <span className="font-medium text-foreground">{formatMoney(comm.commissionBase)}</span>
-                                    {comm.targetTotal != null ? (
-                                      <>
-                                        {' '}
-                                        (receita {formatMoney(comm.revenue)} − alvo {formatMoney(comm.targetTotal)})
-                                      </>
-                                    ) : (
-                                      <> (receita {formatMoney(comm.revenue)}, sem alvo cadastrado)</>
-                                    )}
+                                    {' '}
+                                    ({q} × {formatMoney(costUnit)})
                                   </div>
                                   <div className="mt-1 font-semibold text-foreground">
                                     Comissão estimada: {formatMoney(comm.commissionAmount)}
@@ -626,11 +619,12 @@ export function SalesPage() {
         </CardHeader>
       </Card>
 
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Kpi title="Faturamento" value={formatMoney(totals.revenue)} />
         <Kpi title="Custo (snapshot)" value={formatMoney(totals.cost)} />
         <Kpi title="Lucro bruto" value={formatMoney(totals.profit)} />
         <Kpi title="Comissão" value={formatMoney(totals.commission)} />
+        <Kpi title="Lucro + comissão" value={formatMoney(totals.profitPlusCommission)} />
         <Kpi title="Margem" value={`${(totals.margin * 100).toFixed(2)}%`} />
       </section>
 
@@ -757,27 +751,17 @@ function SaleLineReport({
           <span className="text-muted-foreground">Margem</span>
           <span className="font-medium">{revenue > 0 ? `${((profit / revenue) * 100).toFixed(2)}%` : '—'}</span>
         </div>
+        <div className="mt-3 flex justify-between border-t border-border pt-3">
+          <span className="font-medium text-foreground">Lucro + comissão</span>
+          <span className="font-semibold text-emerald-700">{formatMoney(profit + sale.commission_amount)}</span>
+        </div>
       </div>
 
       <div className="rounded-lg border border-border bg-card p-4 text-sm">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Receita (linha)</span>
-          <span className="font-medium">{formatMoney(revenue)}</span>
+          <span className="text-muted-foreground">Custo total (base da comissão)</span>
+          <span className="font-medium">{formatMoney(cost)}</span>
         </div>
-        {targetProfitTotal != null ? (
-          <>
-            <div className="mt-2 flex justify-between">
-              <span className="text-muted-foreground">Alvo (total)</span>
-              <span className="font-medium">{formatMoney(targetProfitTotal)}</span>
-            </div>
-            <div className="mt-2 flex justify-between">
-              <span className="text-muted-foreground">Base da comissão (receita − alvo)</span>
-              <span className="font-medium">{formatMoney(Math.max(0, revenue - targetProfitTotal))}</span>
-            </div>
-          </>
-        ) : (
-          <div className="mt-2 text-xs text-muted-foreground">Sem alvo: comissão calculada sobre a receita.</div>
-        )}
         <div className="mt-2 flex justify-between">
           <span className="text-muted-foreground">% comissão</span>
           <span className="font-medium">{sale.commission_percent_snapshot.toFixed(2).replace('.', ',')}%</span>
@@ -853,12 +837,13 @@ function SaleOrderRow({
   const cost = lines.reduce((acc, s) => acc + s.qty * s.unit_cost_snapshot, 0)
   const profit = revenue - cost
   const commission = lines.reduce((acc, s) => acc + s.commission_amount, 0)
+  const profitPlusCommission = profit + commission
 
   const titleBits = lines.map((s) => s.product?.name ?? 'Produto').join(' + ')
   const dateStr = new Date(first.sold_at).toISOString().slice(0, 10)
 
   return (
-    <div className="grid grid-cols-1 gap-2 px-3 py-2 md:grid-cols-[1.1fr_0.5fr_0.5fr_0.5fr_0.5fr_0.5fr_auto] md:items-center">
+    <div className="grid grid-cols-1 gap-2 px-3 py-2 md:grid-cols-[1.1fr_0.45fr_0.45fr_0.45fr_0.4fr_0.5fr_0.4fr_auto] md:items-center">
       <div>
         <div className="text-sm font-medium text-slate-900">
           {multi ? `Pedido (${lines.length} produtos)` : titleBits} • {dateStr}
@@ -881,6 +866,7 @@ function SaleOrderRow({
       <div className="text-sm text-slate-900">Custo {formatMoney(cost)}</div>
       <div className="text-sm font-medium text-slate-900">Lucro {formatMoney(profit)}</div>
       <div className="text-sm text-slate-900">Com. {formatMoney(commission)}</div>
+      <div className="text-sm font-semibold text-emerald-800">L.+C. {formatMoney(profitPlusCommission)}</div>
       <div className="text-sm text-slate-700">{revenue > 0 ? `${((profit / revenue) * 100).toFixed(2)}%` : '—'}</div>
       <div className="md:text-right">
         <div className="flex items-center justify-end gap-1">
@@ -906,6 +892,21 @@ function SaleOrderRow({
                   {first.notes}
                 </p>
               ) : null}
+
+              <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-4">
+                <div>
+                  <div className="text-xs text-muted-foreground">Lucro</div>
+                  <div className="font-semibold">{formatMoney(profit)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Comissão</div>
+                  <div className="font-semibold">{formatMoney(commission)}</div>
+                </div>
+                <div className="col-span-2 sm:col-span-2">
+                  <div className="text-xs text-muted-foreground">Lucro + comissão</div>
+                  <div className="font-semibold text-emerald-800">{formatMoney(profitPlusCommission)}</div>
+                </div>
+              </div>
 
               <div className="space-y-6">
                 {lines.map((sale) => {

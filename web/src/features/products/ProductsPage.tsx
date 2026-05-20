@@ -512,7 +512,7 @@ function ProductCard({ product, organizationId }: { product: Product; organizati
                         }}
                       />
                       <div className="mt-1 text-xs text-muted-foreground">
-                        Percentual sobre (receita da linha − alvo de lucro). Deixe vazio para usar o cadastro em
+                        Percentual sobre o custo total da linha (qtd × custo). Deixe vazio para usar o cadastro em
                         Organização.
                       </div>
                     </div>

@@ -104,8 +104,9 @@ export function DashboardPage() {
     }
 
     const commissionTotal = filteredSales.reduce((acc, s) => acc + s.commission_amount, 0)
+    const profitPlusCommission = profit + commissionTotal
 
-    return { revenue, cost, profit, margin, targetTotal, withTarget, hitTarget, commissionTotal }
+    return { revenue, cost, profit, margin, targetTotal, withTarget, hitTarget, commissionTotal, profitPlusCommission }
   }, [filteredSales, productsById])
 
   const daily = useMemo(() => {
@@ -332,14 +333,21 @@ export function DashboardPage() {
           <Kpi title="Custo" value={formatMoney(totals.cost)} icon={<PiggyBank className="h-4 w-4" />} accent="muted" />
           <Kpi title="Lucro" value={formatMoney(totals.profit)} icon={<TrendingUp className="h-4 w-4" />} accent="good" />
         </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4">
           <Kpi title="Margem" value={`${(totals.margin * 100).toFixed(2)}%`} icon={<Percent className="h-4 w-4" />} accent="muted" />
           <Kpi
             title="Comissão"
             value={formatMoney(totals.commissionTotal)}
-            subtitle="Sobre receita do pedido"
+            subtitle="Sobre custo total das linhas"
             icon={<Wallet className="h-4 w-4" />}
             accent="primary"
+          />
+          <Kpi
+            title="Lucro + comissão"
+            value={formatMoney(totals.profitPlusCommission)}
+            subtitle="Lucro bruto + comissões do período"
+            icon={<TrendingUp className="h-4 w-4" />}
+            accent="good"
           />
           <Kpi
             title="Alvo (total)"
@@ -509,7 +517,7 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="overflow-auto rounded-md border border-border">
-              <table className="min-w-[1020px] w-full text-sm">
+              <table className="min-w-[1140px] w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr className="text-left">
                     <th className="p-2">Data</th>
@@ -520,11 +528,13 @@ export function DashboardPage() {
                     <th className="p-2 text-right">Custo</th>
                     <th className="p-2 text-right">Lucro</th>
                     <th className="p-2 text-right">Comissão</th>
+                    <th className="p-2 text-right">Lucro + com.</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredSales.slice(0, 40).map((s) => {
                     const profit = s.qty * (s.unit_price - s.unit_cost_snapshot)
+                    const profitPlusCommission = profit + s.commission_amount
                     return (
                       <tr key={s.id} className="border-t border-border hover:bg-muted/30">
                         <td className="p-2">{new Date(s.sold_at).toISOString().slice(0, 10)}</td>
@@ -535,6 +545,7 @@ export function DashboardPage() {
                         <td className="p-2 text-right">{formatMoney(s.unit_cost_snapshot)}</td>
                         <td className="p-2 text-right">{formatMoney(profit)}</td>
                         <td className="p-2 text-right">{formatMoney(s.commission_amount)}</td>
+                        <td className="p-2 text-right font-medium text-emerald-800">{formatMoney(profitPlusCommission)}</td>
                       </tr>
                     )
                   })}
