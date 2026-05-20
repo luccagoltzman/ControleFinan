@@ -164,6 +164,128 @@ export async function createSaleOrder(input: {
   if (error) throw error
 }
 
+export type SaleLinePayload = {
+  id?: string
+  product_id: string
+  qty: number
+  qty_unit: 'kg' | 'un'
+  unit_price: number
+  unit_cost_snapshot: number
+  commission_percent_snapshot: number
+  commission_amount: number
+}
+
+export async function updateSale(input: {
+  organization_id: string
+  id: string
+  product_id: string
+  region_id: string | null
+  region_id_2?: string | null
+  sold_at: string
+  qty: number
+  qty_unit: 'kg' | 'un'
+  unit_price: number
+  unit_cost_snapshot: number
+  commission_percent_snapshot: number
+  commission_amount: number
+  notes: string | null
+}) {
+  const { region_id_2, ...rest } = input
+  const patch: Record<string, unknown> = { ...rest }
+  if (region_id_2 !== undefined) {
+    patch.region_id_2 = region_id_2 && region_id_2 !== '' ? region_id_2 : null
+  }
+  let { error } = await supabase
+    .from('sales')
+    .update(patch)
+    .eq('organization_id', input.organization_id)
+    .eq('id', input.id)
+
+  if (error && isRegion2SchemaError(error) && input.region_id_2) {
+    throw new Error(
+      'Segunda região não disponível no banco. Aplique a migration 022_sales_second_region.sql no Supabase.',
+    )
+  }
+  if (error && isRegion2SchemaError(error) && region_id_2 !== undefined) {
+    const { region_id_2: _r2, ...legacyPatch } = patch
+    const retry = await supabase
+      .from('sales')
+      .update(legacyPatch)
+      .eq('organization_id', input.organization_id)
+      .eq('id', input.id)
+    error = retry.error
+  }
+  if (error) throw error
+}
+
+/** Atualiza pedido completo: campos comuns + linhas (atualiza, insere novas, remove excluídas). */
+export async function updateSaleOrder(input: {
+  organization_id: string
+  order_id: string | null
+  region_id: string | null
+  region_id_2: string | null
+  sold_at: string
+  notes: string | null
+  lines: SaleLinePayload[]
+  removed_sale_ids: string[]
+}) {
+  for (const id of input.removed_sale_ids) {
+    await deleteSale({ organization_id: input.organization_id, id })
+  }
+
+  const orderId = input.order_id
+
+  for (const line of input.lines) {
+    const row = {
+      organization_id: input.organization_id,
+      order_id: orderId,
+      region_id: input.region_id,
+      region_id_2: input.region_id_2 || null,
+      sold_at: input.sold_at,
+      notes: input.notes,
+      product_id: line.product_id,
+      qty: line.qty,
+      qty_unit: line.qty_unit,
+      unit_price: line.unit_price,
+      unit_cost_snapshot: line.unit_cost_snapshot,
+      commission_percent_snapshot: line.commission_percent_snapshot,
+      commission_amount: line.commission_amount,
+    }
+
+    if (line.id) {
+      await updateSale({
+        organization_id: input.organization_id,
+        id: line.id,
+        product_id: line.product_id,
+        region_id: input.region_id,
+        region_id_2: input.region_id_2,
+        sold_at: input.sold_at,
+        qty: line.qty,
+        qty_unit: line.qty_unit,
+        unit_price: line.unit_price,
+        unit_cost_snapshot: line.unit_cost_snapshot,
+        commission_percent_snapshot: line.commission_percent_snapshot,
+        commission_amount: line.commission_amount,
+        notes: input.notes,
+      })
+    } else {
+      const { error } = await supabase.from('sales').insert(row)
+      if (error && isRegion2SchemaError(error) && input.region_id_2) {
+        throw new Error(
+          'Segunda região não disponível no banco. Aplique a migration 022_sales_second_region.sql no Supabase.',
+        )
+      }
+      if (error && isRegion2SchemaError(error)) {
+        const { region_id_2: _r2, ...legacyRow } = row
+        const retry = await supabase.from('sales').insert(legacyRow)
+        if (retry.error) throw retry.error
+      } else if (error) {
+        throw error
+      }
+    }
+  }
+}
+
 export async function deleteSaleGroup(input: { organization_id: string; saleIds: string[] }) {
   const ids = [...new Set(input.saleIds)].filter(Boolean)
   for (const id of ids) {

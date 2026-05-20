@@ -23,16 +23,28 @@ import { toast } from '../../components/toast/ToastHost'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
 import { parseNumberPtBr } from '../../lib/number'
 import { fetchProducts, type Product } from '../products/productsApi'
-import { createSaleOrder, deleteSale, deleteSaleGroup, fetchSales, type Sale } from './salesApi'
+import {
+  createSaleOrder,
+  deleteSale,
+  deleteSaleGroup,
+  fetchSales,
+  updateSaleOrder,
+  type Sale,
+  type SaleLinePayload,
+} from './salesApi'
 import { SaleAttachmentsSection } from './SaleAttachmentsSection'
 import { fetchRegions } from '../regions/regionsApi'
 import { computeSaleCommissionAmount, effectiveCommissionPercent } from '../../lib/saleCommission'
 import { formatSaleRegions } from '../../lib/saleRegions'
 import { formatQueryError } from '../../lib/formatQueryError'
-import { Plus, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Trash2 } from 'lucide-react'
+
+type OrderDialogState = { mode: 'create' } | { mode: 'edit'; lines: Sale[] }
 
 type SaleLineDraft = {
   key: string
+  /** ID da linha existente ao editar */
+  saleId?: string
   product_id: string
   qty_unit: 'kg' | 'un'
   qty: string
@@ -77,7 +89,7 @@ export function SalesPage() {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  const [createOpen, setCreateOpen] = useState(false)
+  const [orderDialog, setOrderDialog] = useState<OrderDialogState | null>(null)
   const [regionId, setRegionId] = useState('')
   const [regionId2, setRegionId2] = useState('')
   const [soldDate, setSoldDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -111,31 +123,40 @@ export function SalesPage() {
 
   const products = productsQuery.data ?? []
 
-  const createMutation = useMutation({
-    mutationFn: (input: {
+  const saveOrderMutation = useMutation({
+    mutationFn: async (input: {
+      mode: 'create' | 'edit'
+      order_id: string | null
       region_id: string | null
       region_id_2: string | null
       sold_at: string
       notes: string | null
-      lines: Array<{
-        product_id: string
-        qty: number
-        qty_unit: 'kg' | 'un'
-        unit_price: number
-        unit_cost_snapshot: number
-        commission_percent_snapshot: number
-        commission_amount: number
-      }>
-    }) =>
-      createSaleOrder({
-        organization_id: activeOrgId!,
-        order_id: crypto.randomUUID(),
-        region_id: input.region_id,
-        region_id_2: input.region_id_2,
-        sold_at: input.sold_at,
-        notes: input.notes,
-        lines: input.lines,
-      }),
+      lines: SaleLinePayload[]
+      removed_sale_ids: string[]
+    }) => {
+      if (input.mode === 'create') {
+        await createSaleOrder({
+          organization_id: activeOrgId!,
+          order_id: crypto.randomUUID(),
+          region_id: input.region_id,
+          region_id_2: input.region_id_2,
+          sold_at: input.sold_at,
+          notes: input.notes,
+          lines: input.lines,
+        })
+      } else {
+        await updateSaleOrder({
+          organization_id: activeOrgId!,
+          order_id: input.order_id,
+          region_id: input.region_id,
+          region_id_2: input.region_id_2,
+          sold_at: input.sold_at,
+          notes: input.notes,
+          lines: input.lines,
+          removed_sale_ids: input.removed_sale_ids,
+        })
+      }
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['sales'] })
     },
@@ -178,6 +199,76 @@ export function SalesPage() {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
   }
 
+  function resetOrderForm() {
+    setRegionId('')
+    setRegionId2('')
+    setSoldDate(new Date().toISOString().slice(0, 10))
+    setNotes('')
+    setLines([newSaleLine()])
+    setErrorMsg(null)
+  }
+
+  function loadOrderForm(group: Sale[]) {
+    const first = group[0]!
+    setRegionId(first.region_id ?? '')
+    setRegionId2(first.region_id_2 ?? '')
+    setSoldDate(new Date(first.sold_at).toISOString().slice(0, 10))
+    setNotes(first.notes ?? '')
+    setLines(
+      group.map((s) => ({
+        key: s.id,
+        saleId: s.id,
+        product_id: s.product_id,
+        qty_unit: s.qty_unit,
+        qty: String(s.qty).replace('.', ','),
+        unit_price: String(s.unit_price).replace('.', ','),
+        unit_cost_snapshot: String(s.unit_cost_snapshot).replace('.', ','),
+      })),
+    )
+    setErrorMsg(null)
+  }
+
+  function openCreateDialog() {
+    resetOrderForm()
+    setOrderDialog({ mode: 'create' })
+  }
+
+  function openEditDialog(group: Sale[]) {
+    loadOrderForm(group)
+    setOrderDialog({ mode: 'edit', lines: group })
+  }
+
+  function buildPayloadLines(filled: SaleLineDraft[]): { lines: SaleLinePayload[] } | { error: string } {
+    const payloadLines: SaleLinePayload[] = []
+    for (const l of filled) {
+      const qty = parseNumberPtBr(l.qty)
+      const unitPrice = parseMoneyPtBr(l.unit_price)
+      const unitCost = parseMoneyPtBr(l.unit_cost_snapshot)
+      if (qty == null || qty <= 0) return { error: 'Quantidade inválida em uma das linhas.' }
+      if (unitPrice == null) return { error: 'Preço unitário inválido em uma das linhas.' }
+      if (unitCost == null) return { error: 'Custo (snapshot) inválido em uma das linhas.' }
+      const prod = products.find((p) => p.id === l.product_id) ?? null
+      const comm = computeSaleCommissionAmount({
+        qty,
+        unitPrice,
+        qtyUnit: l.qty_unit,
+        product: prod,
+        orgDefaultPercent: orgDefaultCommission,
+      })
+      payloadLines.push({
+        id: l.saleId,
+        product_id: l.product_id,
+        qty,
+        qty_unit: l.qty_unit,
+        unit_price: unitPrice,
+        unit_cost_snapshot: unitCost,
+        commission_percent_snapshot: comm.commissionPercent,
+        commission_amount: comm.commissionAmount,
+      })
+    }
+    return { lines: payloadLines }
+  }
+
   function onPickProduct(lineKey: string, productId: string, current: SaleLineDraft) {
     const nextUnit = current.qty_unit
     const patch: Partial<SaleLineDraft> = { product_id: productId }
@@ -190,58 +281,21 @@ export function SalesPage() {
     updateLine(lineKey, patch)
   }
 
-  async function onSubmitCreate() {
+  async function onSubmitOrderSave() {
     setErrorMsg(null)
+    const isEdit = orderDialog?.mode === 'edit'
     const filled = lines.filter((l) => l.product_id.trim() !== '')
     if (filled.length === 0) {
       setErrorMsg('Inclua pelo menos um produto com quantidade e valores.')
       return
     }
 
-    const payloadLines: Array<{
-      product_id: string
-      qty: number
-      qty_unit: 'kg' | 'un'
-      unit_price: number
-      unit_cost_snapshot: number
-      commission_percent_snapshot: number
-      commission_amount: number
-    }> = []
-
-    for (const l of filled) {
-      const qty = parseNumberPtBr(l.qty)
-      const unitPrice = parseMoneyPtBr(l.unit_price)
-      const unitCost = parseMoneyPtBr(l.unit_cost_snapshot)
-      if (qty == null || qty <= 0) {
-        setErrorMsg('Quantidade inválida em uma das linhas.')
-        return
-      }
-      if (unitPrice == null) {
-        setErrorMsg('Preço unitário inválido em uma das linhas.')
-        return
-      }
-      if (unitCost == null) {
-        setErrorMsg('Custo (snapshot) inválido em uma das linhas.')
-        return
-      }
-      const prod = products.find((p) => p.id === l.product_id) ?? null
-      const comm = computeSaleCommissionAmount({
-        qty,
-        unitPrice,
-        qtyUnit: l.qty_unit,
-        product: prod,
-        orgDefaultPercent: orgDefaultCommission,
-      })
-      payloadLines.push({
-        product_id: l.product_id,
-        qty,
-        qty_unit: l.qty_unit,
-        unit_price: unitPrice,
-        unit_cost_snapshot: unitCost,
-        commission_percent_snapshot: comm.commissionPercent,
-        commission_amount: comm.commissionAmount,
-      })
+    const built = buildPayloadLines(filled)
+    if ('error' in built) {
+      setErrorMsg(built.error)
+      return
     }
+    const payloadLines = built.lines
 
     const sold_at = new Date(`${soldDate}T12:00:00`).toISOString()
     const rid = regionId.trim() ? regionId.trim() : null
@@ -252,29 +306,41 @@ export function SalesPage() {
     }
     const notesTrim = notes.trim() ? notes.trim() : null
 
+    const editingLines = isEdit ? orderDialog.lines : []
+    const keptIds = new Set(payloadLines.map((p) => p.id).filter(Boolean))
+    const removed_sale_ids = isEdit
+      ? editingLines.map((s) => s.id).filter((id) => !keptIds.has(id))
+      : []
+
     try {
-      await createMutation.mutateAsync({
+      await saveOrderMutation.mutateAsync({
+        mode: isEdit ? 'edit' : 'create',
+        order_id: isEdit ? editingLines[0]!.order_id : null,
         region_id: rid,
         region_id_2: rid2,
         sold_at,
         notes: notesTrim,
         lines: payloadLines,
+        removed_sale_ids,
       })
       const n = payloadLines.length
       toast({
-        title: n > 1 ? 'Pedido salvo' : 'Venda salva',
-        description:
-          n > 1
+        title: isEdit ? (n > 1 ? 'Pedido atualizado' : 'Venda atualizada') : n > 1 ? 'Pedido salvo' : 'Venda salva',
+        description: isEdit
+          ? 'Alterações gravadas com sucesso.'
+          : n > 1
             ? `${n} produtos no mesmo pedido • ${new Date(sold_at).toLocaleDateString('pt-BR')}`
             : `${payloadLines[0]!.qty} ${payloadLines[0]!.qty_unit} registados.`,
       })
-      setLines([newSaleLine()])
-      setNotes('')
-      setCreateOpen(false)
+      setOrderDialog(null)
+      resetOrderForm()
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Erro ao salvar pedido')
     }
   }
+
+  const isOrderDialogOpen = orderDialog !== null
+  const isEditMode = orderDialog?.mode === 'edit'
 
   const totals = useMemo(() => {
     const sales = salesQuery.data ?? []
@@ -321,16 +387,22 @@ export function SalesPage() {
               Um pedido pode incluir vários produtos (mesma data, região e observações).
             </div>
           </div>
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button>Novo lançamento</Button>
-            </DialogTrigger>
+          <Button type="button" onClick={openCreateDialog}>
+            Novo lançamento
+          </Button>
+          <Dialog
+            open={isOrderDialogOpen}
+            onOpenChange={(open) => {
+              if (!open) setOrderDialog(null)
+            }}
+          >
             <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Novo pedido / venda</DialogTitle>
+                <DialogTitle>{isEditMode ? 'Editar pedido / venda' : 'Novo pedido / venda'}</DialogTitle>
                 <DialogDescription>
-                  Preencha os dados comuns e adicione uma linha por produto. Use &quot;Adicionar produto&quot; para mais itens no
-                  mesmo pedido.
+                  {isEditMode
+                    ? 'Altere regiões, data, produtos e valores. Remova linhas ou adicione produtos; a comissão é recalculada ao salvar.'
+                    : 'Preencha os dados comuns e adicione uma linha por produto. Use "Adicionar produto" para mais itens no mesmo pedido.'}
                 </DialogDescription>
               </DialogHeader>
 
@@ -537,9 +609,16 @@ export function SalesPage() {
 
               {errorMsg ? <div className="mt-3 text-sm text-destructive">{errorMsg}</div> : null}
 
-              <DialogFooter className="mt-4">
-                <Button type="button" onClick={onSubmitCreate} disabled={createMutation.isPending}>
-                  Salvar pedido
+              <DialogFooter className="mt-4 gap-2 sm:justify-end">
+                <Button type="button" variant="outline" onClick={() => setOrderDialog(null)}>
+                  Cancelar
+                </Button>
+                <Button type="button" onClick={onSubmitOrderSave} disabled={saveOrderMutation.isPending}>
+                  {saveOrderMutation.isPending
+                    ? 'Salvando…'
+                    : isEditMode
+                      ? 'Salvar alterações'
+                      : 'Salvar pedido'}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -576,6 +655,7 @@ export function SalesPage() {
                   key={groupLines[0]!.order_id ?? groupLines[0]!.id}
                   lines={groupLines}
                   products={products}
+                  onEdit={() => openEditDialog(groupLines)}
                   onDeleteGroup={() => deleteGroupMutation.mutate(groupLines.map((s) => s.id))}
                   onDeleteLine={(id) => deleteLineMutation.mutate(id)}
                   isDeletingGroup={deleteGroupMutation.isPending}
@@ -751,6 +831,7 @@ function SaleLineReport({
 function SaleOrderRow({
   lines,
   products,
+  onEdit,
   onDeleteGroup,
   onDeleteLine,
   isDeletingGroup,
@@ -758,6 +839,7 @@ function SaleOrderRow({
 }: {
   lines: Sale[]
   products: Product[]
+  onEdit: () => void
   onDeleteGroup: () => void
   onDeleteLine: (id: string) => void
   isDeletingGroup: boolean
@@ -802,6 +884,10 @@ function SaleOrderRow({
       <div className="text-sm text-slate-700">{revenue > 0 ? `${((profit / revenue) * 100).toFixed(2)}%` : '—'}</div>
       <div className="md:text-right">
         <div className="flex items-center justify-end gap-1">
+          <Button variant="ghost" onClick={onEdit} disabled={isDeletingGroup || isDeletingLine}>
+            <Pencil className="mr-1 h-4 w-4" aria-hidden />
+            Editar
+          </Button>
           <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
             <DialogTrigger asChild>
               <Button variant="ghost">Detalhes</Button>
@@ -811,7 +897,7 @@ function SaleOrderRow({
                 <DialogTitle>{multi ? 'Relatório do pedido' : 'Relatório da venda'}</DialogTitle>
                 <DialogDescription>
                   {dateStr}
-                  {first.region?.name ? ` • ${first.region.name}` : ''}
+                  {formatSaleRegions(first) ? ` • ${formatSaleRegions(first)}` : ''}
                 </DialogDescription>
               </DialogHeader>
 
@@ -847,6 +933,17 @@ function SaleOrderRow({
               </div>
 
               <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDetailsOpen(false)
+                    onEdit()
+                  }}
+                  disabled={isDeletingGroup || isDeletingLine}
+                >
+                  <Pencil className="mr-1 h-4 w-4" aria-hidden />
+                  Editar
+                </Button>
                 <Button variant="destructive" onClick={onDeleteGroup} disabled={isDeletingGroup || isDeletingLine}>
                   Excluir {multi ? 'pedido inteiro' : 'venda'}
                 </Button>
