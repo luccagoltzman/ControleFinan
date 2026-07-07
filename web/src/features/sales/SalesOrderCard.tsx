@@ -28,6 +28,7 @@ import {
 } from '../../lib/saleOrderMetrics'
 import { SaleTaxFields, loadSaleTaxDrafts } from './SaleTaxFields'
 import { SaleAttachmentsSection } from './SaleAttachmentsSection'
+import { SALE_INDUSTRY_COST_SHORT, SALE_REPRESENTATIVE_COST_SHORT } from '../../lib/saleFieldLabels'
 import { SALE_PAYMENT_LABELS, salePaymentBadgeClass } from '../../lib/salePayment'
 
 function OrderMetric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
@@ -148,7 +149,7 @@ export function SalesOrderCard({
             </ul>
           ) : (
             <p className="text-sm text-muted-foreground">
-              {first.qty} {first.qty_unit} · Preço {formatMoney(first.unit_price)} · Custo {formatMoney(first.unit_cost_snapshot)}
+              {first.qty} {first.qty_unit} · {SALE_INDUSTRY_COST_SHORT} {formatMoney(first.unit_price)} · {SALE_REPRESENTATIVE_COST_SHORT} {formatMoney(first.unit_cost_snapshot)}
             </p>
           )}
 

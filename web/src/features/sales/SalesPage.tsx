@@ -45,6 +45,14 @@ import {
 } from '../../lib/saleCommission'
 import { formatQueryError } from '../../lib/formatQueryError'
 import { orderPaidAt, orderPaymentStatus, orderTaxAmount } from '../../lib/saleOrderMetrics'
+import {
+  SALE_INDUSTRY_COST_INVALID,
+  SALE_INDUSTRY_COST_SHORT,
+  SALE_REPRESENTATIVE_COST_INVALID,
+  SALE_REPRESENTATIVE_COST_SHORT,
+  saleIndustryCostLabel,
+  saleRepresentativeCostLabel,
+} from '../../lib/saleFieldLabels'
 import { SALE_PAYMENT_LABELS } from '../../lib/salePayment'
 import { Plus, Trash2 } from 'lucide-react'
 
@@ -327,8 +335,8 @@ export function SalesPage() {
       const unitPrice = parseMoneyPtBr(l.unit_price)
       const unitCost = parseMoneyPtBr(l.unit_cost_snapshot)
       if (qty == null || qty <= 0) return { error: 'Quantidade inválida em uma das linhas.' }
-      if (unitPrice == null) return { error: 'Preço unitário inválido em uma das linhas.' }
-      if (unitCost == null) return { error: 'Custo (snapshot) inválido em uma das linhas.' }
+      if (unitPrice == null) return { error: SALE_INDUSTRY_COST_INVALID }
+      if (unitCost == null) return { error: SALE_REPRESENTATIVE_COST_INVALID }
       const prod = products.find((p) => p.id === l.product_id) ?? null
       const comm = computeSaleCommissionAmount({
         qty,
@@ -681,7 +689,7 @@ export function SalesPage() {
                     </div>
                     <div className="md:col-span-6">
                       <MoneyInput
-                        label={`Preço por ${line.qty_unit}`}
+                        label={saleIndustryCostLabel(line.qty_unit)}
                         value={line.unit_price}
                         onChange={(e) => updateLine(line.key, { unit_price: e.target.value })}
                       />
@@ -703,7 +711,7 @@ export function SalesPage() {
                     </div>
                     <div className="md:col-span-6">
                       <MoneyInput
-                        label="Custo (snapshot)"
+                        label={saleRepresentativeCostLabel(line.qty_unit)}
                         value={line.unit_cost_snapshot}
                         onChange={(e) => updateLine(line.key, { unit_cost_snapshot: e.target.value })}
                       />
@@ -720,7 +728,7 @@ export function SalesPage() {
                                 Comissão %: {pct.toFixed(2).replace('.', ',')}%
                                 {selectedProduct.commission_percent != null ? ' (produto)' : ' (organização)'}
                                 {' — '}
-                                informe qtd e custo para ver a base (custo total).
+                                informe qtd e custo representante para ver a base.
                               </>
                             )
                           }
@@ -733,7 +741,7 @@ export function SalesPage() {
                           return (
                             <>
                               <div>
-                                Comissão {pct.toFixed(2).replace('.', ',')}% sobre custo total{' '}
+                                    Comissão {pct.toFixed(2).replace('.', ',')}% sobre custo representante total{' '}
                                 <span className="font-medium text-foreground">{formatMoney(comm.commissionBase)}</span>
                                 {' '}
                                 ({q} × {formatMoney(costUnit)})
@@ -849,7 +857,7 @@ export function SalesPage() {
 
         <StatSection title="Composição" description="Custo, comissão e impostos">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard label="Custo (snapshot)" value={formatMoney(totals.cost)} accent="muted" />
+            <StatCard label={`${SALE_REPRESENTATIVE_COST_SHORT} (total)`} value={formatMoney(totals.cost)} accent="muted" />
             <StatCard label="Comissão" value={formatMoney(totals.commission)} />
             <StatCard label="Lucro + comissão" value={formatMoney(totals.profitPlusCommission)} accent="positive" />
             <StatCard label="Imposto" value={formatMoney(totals.taxTotal)} />
@@ -968,11 +976,11 @@ function SaleLineReport({
           </span>
         </div>
         <div className="mt-2 flex justify-between">
-          <span className="text-muted-foreground">Preço (digitado)</span>
+          <span className="text-muted-foreground">{SALE_INDUSTRY_COST_SHORT}</span>
           <span className="font-medium">{formatMoney(sale.unit_price)}</span>
         </div>
         <div className="mt-2 flex justify-between">
-          <span className="text-muted-foreground">Custo (snapshot)</span>
+          <span className="text-muted-foreground">{SALE_REPRESENTATIVE_COST_SHORT}</span>
           <span className="font-medium">{formatMoney(sale.unit_cost_snapshot)}</span>
         </div>
         <div className="mt-3 rounded-md bg-muted px-3 py-2">
@@ -1014,7 +1022,7 @@ function SaleLineReport({
 
       <div className="rounded-lg border border-border bg-card p-4 text-sm">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Custo total (base da comissão)</span>
+          <span className="text-muted-foreground">Custo representante (base da comissão)</span>
           <span className="font-medium">{formatMoney(cost)}</span>
         </div>
         <div className="mt-2 flex justify-between">
