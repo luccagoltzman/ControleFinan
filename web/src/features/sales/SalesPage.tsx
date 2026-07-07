@@ -28,12 +28,14 @@ import {
   deleteSale,
   deleteSaleGroup,
   fetchSales,
-  updateOrderTaxAmount,
+  updateOrderTax,
   updateSaleOrder,
   type Sale,
   type SaleLinePayload,
 } from './salesApi'
+import { SaleTaxFields, loadSaleTaxDrafts } from './SaleTaxFields'
 import { SaleAttachmentsSection } from './SaleAttachmentsSection'
+import { parseSaleTaxInput } from '../../lib/saleTax'
 import { fetchRegions } from '../regions/regionsApi'
 import {
   commissionAmountFromSaleLine,
@@ -48,6 +50,7 @@ import {
   orderProfit,
   orderProfitPlusCommission,
   orderTaxAmount,
+  orderTaxPercent,
 } from '../../lib/saleOrderMetrics'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 
@@ -111,6 +114,7 @@ export function SalesPage() {
   const [soldDate, setSoldDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
   const [taxAmount, setTaxAmount] = useState('')
+  const [taxPercent, setTaxPercent] = useState('')
   const [lines, setLines] = useState<SaleLineDraft[]>(() => [newSaleLine()])
 
   const orgDefaultCommission = useMemo(() => {
@@ -158,6 +162,7 @@ export function SalesPage() {
       sold_at: string
       notes: string | null
       tax_amount: number | null
+      tax_percent_snapshot: number | null
       lines: SaleLinePayload[]
       removed_sale_ids: string[]
     }) => {
@@ -170,6 +175,7 @@ export function SalesPage() {
           sold_at: input.sold_at,
           notes: input.notes,
           tax_amount: input.tax_amount,
+          tax_percent_snapshot: input.tax_percent_snapshot,
           lines: input.lines,
         })
       } else {
@@ -181,6 +187,7 @@ export function SalesPage() {
           sold_at: input.sold_at,
           notes: input.notes,
           tax_amount: input.tax_amount,
+          tax_percent_snapshot: input.tax_percent_snapshot,
           lines: input.lines,
           removed_sale_ids: input.removed_sale_ids,
         })
@@ -206,11 +213,16 @@ export function SalesPage() {
   })
 
   const updateTaxMutation = useMutation({
-    mutationFn: (input: { lineIds: string[]; tax_amount: number | null }) =>
-      updateOrderTaxAmount({
+    mutationFn: (input: {
+      lineIds: string[]
+      tax_amount: number | null
+      tax_percent_snapshot: number | null
+    }) =>
+      updateOrderTax({
         organization_id: activeOrgId!,
         lineIds: input.lineIds,
         tax_amount: input.tax_amount,
+        tax_percent_snapshot: input.tax_percent_snapshot,
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['sales'] })
@@ -247,6 +259,7 @@ export function SalesPage() {
     setSoldDate(new Date().toISOString().slice(0, 10))
     setNotes('')
     setTaxAmount('')
+    setTaxPercent('')
     setLines([newSaleLine()])
     setErrorMsg(null)
   }
@@ -257,8 +270,13 @@ export function SalesPage() {
     setRegionId2(first.region_id_2 ?? '')
     setSoldDate(new Date(first.sold_at).toISOString().slice(0, 10))
     setNotes(first.notes ?? '')
-    const tax = orderTaxAmount(group)
-    setTaxAmount(tax > 0 ? String(tax).replace('.', ',') : '')
+    const taxLine = group.find((l) => l.tax_amount != null || l.tax_percent_snapshot != null) ?? group[0]!
+    const taxDrafts = loadSaleTaxDrafts({
+      tax_amount: taxLine.tax_amount,
+      tax_percent_snapshot: taxLine.tax_percent_snapshot,
+    })
+    setTaxAmount(taxDrafts.amount)
+    setTaxPercent(taxDrafts.percent)
     setLines(
       group.map((s) => ({
         key: s.id,
@@ -350,16 +368,16 @@ export function SalesPage() {
     }
     const notesTrim = notes.trim() ? notes.trim() : null
 
-    const taxRaw = taxAmount.trim()
-    let tax_amount: number | null = null
-    if (taxRaw) {
-      const parsedTax = parseMoneyPtBr(taxRaw)
-      if (parsedTax == null || parsedTax < 0) {
-        setErrorMsg('Valor de imposto inválido.')
-        return
-      }
-      tax_amount = parsedTax
+    const taxParsed = parseSaleTaxInput({
+      baseAmount: draftProfitPlusCommission,
+      percentRaw: taxPercent,
+      amountRaw: taxAmount,
+    })
+    if (!taxParsed.ok) {
+      setErrorMsg(taxParsed.error)
+      return
     }
+    const { tax_amount, tax_percent_snapshot } = taxParsed.tax
 
     const editingLines = isEdit ? orderDialog.lines : []
     const keptIds = new Set(payloadLines.map((p) => p.id).filter(Boolean))
@@ -376,6 +394,7 @@ export function SalesPage() {
         sold_at,
         notes: notesTrim,
         tax_amount,
+        tax_percent_snapshot,
         lines: payloadLines,
         removed_sale_ids,
       })
@@ -700,23 +719,13 @@ export function SalesPage() {
 
               <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4">
                 <div className="mb-3 text-sm font-semibold">Imposto sobre lucro + comissão</div>
-                <div className="mb-3 text-xs text-muted-foreground">
-                  Base estimada (lucro + comissão):{' '}
-                  <span className="font-medium text-foreground">{formatMoney(draftProfitPlusCommission)}</span>
-                </div>
-                <MoneyInput
-                  label="Valor do imposto a pagar"
-                  value={taxAmount}
-                  onChange={(e) => setTaxAmount(e.target.value)}
+                <SaleTaxFields
+                  baseAmount={draftProfitPlusCommission}
+                  percent={taxPercent}
+                  amount={taxAmount}
+                  onPercentChange={setTaxPercent}
+                  onAmountChange={setTaxAmount}
                 />
-                {taxAmount.trim() && parseMoneyPtBr(taxAmount) != null ? (
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Líquido estimado após imposto:{' '}
-                    <span className="font-semibold text-emerald-800">
-                      {formatMoney(draftProfitPlusCommission - (parseMoneyPtBr(taxAmount) ?? 0))}
-                    </span>
-                  </div>
-                ) : null}
               </div>
 
               {errorMsg ? <div className="mt-3 text-sm text-destructive">{errorMsg}</div> : null}
@@ -798,7 +807,7 @@ export function SalesPage() {
                   onEdit={() => openEditDialog(groupLines)}
                   onDeleteGroup={() => deleteGroupMutation.mutate(groupLines.map((s) => s.id))}
                   onDeleteLine={(id) => deleteLineMutation.mutate(id)}
-                  onSaveTax={(lineIds, tax_amount) => updateTaxMutation.mutateAsync({ lineIds, tax_amount })}
+                  onSaveTax={(lineIds, tax) => updateTaxMutation.mutateAsync({ lineIds, ...tax })}
                   isSavingTax={updateTaxMutation.isPending}
                   isDeletingGroup={deleteGroupMutation.isPending}
                   isDeletingLine={deleteLineMutation.isPending}
@@ -981,13 +990,17 @@ function SaleOrderRow({
   onEdit: () => void
   onDeleteGroup: () => void
   onDeleteLine: (id: string) => void
-  onSaveTax: (lineIds: string[], tax_amount: number | null) => Promise<unknown>
+  onSaveTax: (
+    lineIds: string[],
+    tax: { tax_amount: number | null; tax_percent_snapshot: number | null },
+  ) => Promise<unknown>
   isSavingTax: boolean
   isDeletingGroup: boolean
   isDeletingLine: boolean
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const [taxDraft, setTaxDraft] = useState('')
+  const [taxDraftPercent, setTaxDraftPercent] = useState('')
+  const [taxDraftAmount, setTaxDraftAmount] = useState('')
   const [taxError, setTaxError] = useState<string | null>(null)
   const first = lines[0]!
   const multi = lines.length > 1
@@ -1002,14 +1015,20 @@ function SaleOrderRow({
   const commission = orderCommission(lines)
   const profitPlusCommission = orderProfitPlusCommission(lines)
   const tax = orderTaxAmount(lines)
+  const taxPct = orderTaxPercent(lines)
   const netAfterTax = orderNetAfterTax(lines)
 
   useEffect(() => {
     if (detailsOpen) {
-      setTaxDraft(tax > 0 ? String(tax).replace('.', ',') : '')
+      const drafts = loadSaleTaxDrafts({
+        tax_amount: tax > 0 ? tax : null,
+        tax_percent_snapshot: taxPct,
+      })
+      setTaxDraftPercent(drafts.percent)
+      setTaxDraftAmount(drafts.amount)
       setTaxError(null)
     }
-  }, [detailsOpen, tax])
+  }, [detailsOpen, tax, taxPct])
 
   const titleBits = lines.map((s) => s.product?.name ?? 'Produto').join(' + ')
   const dateStr = new Date(first.sold_at).toISOString().slice(0, 10)
@@ -1039,7 +1058,12 @@ function SaleOrderRow({
       <div className="text-sm font-medium text-slate-900">Lucro {formatMoney(profit)}</div>
       <div className="text-sm text-slate-900">Com. {formatMoney(commission)}</div>
       <div className="text-sm font-semibold text-emerald-800">L.+C. {formatMoney(profitPlusCommission)}</div>
-      <div className="text-sm text-slate-900">Imp. {formatMoney(tax)}</div>
+      <div className="text-sm text-slate-900">
+        Imp. {formatMoney(tax)}
+        {taxPct != null && taxPct > 0 ? (
+          <span className="text-xs text-slate-600"> ({taxPct.toFixed(2).replace('.', ',')}%)</span>
+        ) : null}
+      </div>
       <div className="text-sm font-medium text-slate-900">Líq. {formatMoney(netAfterTax)}</div>
       <div className="md:text-right">
         <div className="flex items-center justify-end gap-1">
@@ -1081,7 +1105,15 @@ function SaleOrderRow({
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground">Imposto</div>
-                  <div className="font-semibold">{formatMoney(tax)}</div>
+                  <div className="font-semibold">
+                    {formatMoney(tax)}
+                    {taxPct != null && taxPct > 0 ? (
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {' '}
+                        ({taxPct.toFixed(2).replace('.', ',')}%)
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="col-span-2 sm:col-span-1 lg:col-span-2">
                   <div className="text-xs text-muted-foreground">Líquido após imposto</div>
@@ -1090,12 +1122,14 @@ function SaleOrderRow({
               </div>
 
               <div className="rounded-lg border border-border bg-card p-4">
-                <div className="mb-2 text-sm font-semibold">Imposto sobre lucro + comissão</div>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  Informe o valor que será pago de imposto em cima de {formatMoney(profitPlusCommission)} (lucro +
-                  comissão).
-                </p>
-                <MoneyInput label="Valor do imposto" value={taxDraft} onChange={(e) => setTaxDraft(e.target.value)} />
+                <div className="mb-3 text-sm font-semibold">Imposto sobre lucro + comissão</div>
+                <SaleTaxFields
+                  baseAmount={profitPlusCommission}
+                  percent={taxDraftPercent}
+                  amount={taxDraftAmount}
+                  onPercentChange={setTaxDraftPercent}
+                  onAmountChange={setTaxDraftAmount}
+                />
                 {taxError ? <p className="mt-2 text-sm text-destructive">{taxError}</p> : null}
                 <Button
                   type="button"
@@ -1104,21 +1138,17 @@ function SaleOrderRow({
                   disabled={isSavingTax || isDeletingGroup || isDeletingLine}
                   onClick={async () => {
                     setTaxError(null)
-                    const raw = taxDraft.trim()
-                    let tax_amount: number | null = null
-                    if (raw) {
-                      const n = parseMoneyPtBr(raw)
-                      if (n == null || n < 0) {
-                        setTaxError('Valor de imposto inválido.')
-                        return
-                      }
-                      tax_amount = n
+                    const parsed = parseSaleTaxInput({
+                      baseAmount: profitPlusCommission,
+                      percentRaw: taxDraftPercent,
+                      amountRaw: taxDraftAmount,
+                    })
+                    if (!parsed.ok) {
+                      setTaxError(parsed.error)
+                      return
                     }
                     try {
-                      await onSaveTax(
-                        sortedLines.map((s) => s.id),
-                        tax_amount,
-                      )
+                      await onSaveTax(sortedLines.map((s) => s.id), parsed.tax)
                     } catch (e) {
                       setTaxError(e instanceof Error ? e.message : 'Erro ao salvar imposto')
                     }

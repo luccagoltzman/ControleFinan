@@ -33,6 +33,11 @@ export function orderTaxAmount(lines: Pick<Sale, 'tax_amount'>[]): number {
   return Number(withTax?.tax_amount ?? 0)
 }
 
+export function orderTaxPercent(lines: Pick<Sale, 'tax_percent_snapshot'>[]): number | null {
+  const withPct = lines.find((l) => l.tax_percent_snapshot != null)
+  return withPct?.tax_percent_snapshot ?? null
+}
+
 export function orderNetAfterTax(lines: Sale[]): number {
   return orderProfitPlusCommission(lines) - orderTaxAmount(lines)
 }
