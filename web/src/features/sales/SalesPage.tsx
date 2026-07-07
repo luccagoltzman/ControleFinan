@@ -27,10 +27,12 @@ import {
   deleteSale,
   deleteSaleGroup,
   fetchSales,
+  updateOrderPayment,
   updateOrderTax,
   updateSaleOrder,
   type Sale,
   type SaleLinePayload,
+  type SalePaymentStatus,
 } from './salesApi'
 import { SaleTaxFields, loadSaleTaxDrafts } from './SaleTaxFields'
 import { parseSaleTaxInput } from '../../lib/saleTax'
@@ -42,7 +44,8 @@ import {
   effectiveCommissionPercent,
 } from '../../lib/saleCommission'
 import { formatQueryError } from '../../lib/formatQueryError'
-import { orderTaxAmount } from '../../lib/saleOrderMetrics'
+import { orderPaidAt, orderPaymentStatus, orderTaxAmount } from '../../lib/saleOrderMetrics'
+import { SALE_PAYMENT_LABELS } from '../../lib/salePayment'
 import { Plus, Trash2 } from 'lucide-react'
 
 type OrderDialogState = { mode: 'create' } | { mode: 'edit'; lines: Sale[] }
@@ -97,6 +100,7 @@ export function SalesPage() {
   const { activeOrgId, memberships } = useOrg()
   /** Vazio = todas as vendas; preenchido = busca rápida por mês (filtro local). */
   const [monthFilter, setMonthFilter] = useState('')
+  const [paymentFilter, setPaymentFilter] = useState<'' | SalePaymentStatus>('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const [orderDialog, setOrderDialog] = useState<OrderDialogState | null>(null)
@@ -106,6 +110,7 @@ export function SalesPage() {
   const [notes, setNotes] = useState('')
   const [taxAmount, setTaxAmount] = useState('')
   const [taxPercent, setTaxPercent] = useState('')
+  const [paymentStatus, setPaymentStatus] = useState<SalePaymentStatus>('pending')
   const [lines, setLines] = useState<SaleLineDraft[]>(() => [newSaleLine()])
 
   const orgDefaultCommission = useMemo(() => {
@@ -154,6 +159,8 @@ export function SalesPage() {
       notes: string | null
       tax_amount: number | null
       tax_percent_snapshot: number | null
+      payment_status: SalePaymentStatus
+      paid_at: string | null
       lines: SaleLinePayload[]
       removed_sale_ids: string[]
     }) => {
@@ -167,6 +174,8 @@ export function SalesPage() {
           notes: input.notes,
           tax_amount: input.tax_amount,
           tax_percent_snapshot: input.tax_percent_snapshot,
+          payment_status: input.payment_status,
+          paid_at: input.paid_at,
           lines: input.lines,
         })
       } else {
@@ -179,6 +188,8 @@ export function SalesPage() {
           notes: input.notes,
           tax_amount: input.tax_amount,
           tax_percent_snapshot: input.tax_percent_snapshot,
+          payment_status: input.payment_status,
+          paid_at: input.paid_at,
           lines: input.lines,
           removed_sale_ids: input.removed_sale_ids,
         })
@@ -221,6 +232,21 @@ export function SalesPage() {
     },
   })
 
+  const updatePaymentMutation = useMutation({
+    mutationFn: (input: { firstLineId: string; payment_status: SalePaymentStatus }) =>
+      updateOrderPayment({
+        organization_id: activeOrgId!,
+        firstLineId: input.firstLineId,
+        payment_status: input.payment_status,
+      }),
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ['sales'] })
+      toast({
+        title: variables.payment_status === 'paid' ? 'Marcado como pago' : 'Marcado como pendente',
+      })
+    },
+  })
+
   function computeSuggestedCostSnapshot(productId: string, nextQtyUnit: 'kg' | 'un') {
     const p = products.find((x) => x.id === productId)
     if (!p) return null
@@ -251,6 +277,7 @@ export function SalesPage() {
     setNotes('')
     setTaxAmount('')
     setTaxPercent('')
+    setPaymentStatus('pending')
     setLines([newSaleLine()])
     setErrorMsg(null)
   }
@@ -268,6 +295,7 @@ export function SalesPage() {
     })
     setTaxAmount(taxDrafts.amount)
     setTaxPercent(taxDrafts.percent)
+    setPaymentStatus(orderPaymentStatus(group))
     setLines(
       group.map((s) => ({
         key: s.id,
@@ -369,6 +397,13 @@ export function SalesPage() {
       return
     }
     const { tax_amount, tax_percent_snapshot } = taxParsed.tax
+    const existingPaidAt = isEdit ? orderPaidAt(orderDialog.lines) : null
+    const paid_at =
+      paymentStatus === 'paid'
+        ? existingPaidAt && orderPaymentStatus(isEdit ? orderDialog.lines : []) === 'paid'
+          ? existingPaidAt
+          : new Date().toISOString()
+        : null
 
     const editingLines = isEdit ? orderDialog.lines : []
     const keptIds = new Set(payloadLines.map((p) => p.id).filter(Boolean))
@@ -386,6 +421,8 @@ export function SalesPage() {
         notes: notesTrim,
         tax_amount,
         tax_percent_snapshot,
+        payment_status: paymentStatus,
+        paid_at,
         lines: payloadLines,
         removed_sale_ids,
       })
@@ -452,7 +489,16 @@ export function SalesPage() {
     return { revenue, cost, profit, margin, commission, profitPlusCommission, taxTotal, netAfterTax }
   }, [filteredSales])
 
-  const orderGroups = useMemo(() => groupSalesByOrder(filteredSales), [filteredSales])
+  const orderGroups = useMemo(() => {
+    const groups = groupSalesByOrder(filteredSales)
+    if (!paymentFilter) return groups
+    return groups.filter((g) => orderPaymentStatus(g) === paymentFilter)
+  }, [filteredSales, paymentFilter])
+
+  const pendingOrderCount = useMemo(
+    () => groupSalesByOrder(filteredSales).filter((g) => orderPaymentStatus(g) === 'pending').length,
+    [filteredSales],
+  )
 
   return (
     <div className="space-y-6">
@@ -461,6 +507,18 @@ export function SalesPage() {
         description="Pedidos com vários produtos e até dois CDs. Comissão sobre o custo total de cada linha."
         right={
           <div className="flex flex-wrap items-end justify-end gap-2">
+            <label className="block">
+              <div className="mb-1 text-xs font-medium text-muted-foreground">Pagamento</div>
+              <select
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                value={paymentFilter}
+                onChange={(e) => setPaymentFilter(e.target.value as '' | SalePaymentStatus)}
+              >
+                <option value="">Todos</option>
+                <option value="pending">Pendentes</option>
+                <option value="paid">Pagos</option>
+              </select>
+            </label>
             <label className="block">
               <div className="mb-1 text-xs font-medium text-muted-foreground">Busca por mês</div>
               <Input
@@ -537,6 +595,17 @@ export function SalesPage() {
             <div className="md:col-span-12">
               <Label>Observações (todo o pedido)</Label>
               <Textarea className="mt-1" placeholder="Cliente, NF, detalhes…" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+            <div className="md:col-span-4">
+              <Label>Status de pagamento</Label>
+              <select
+                className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={paymentStatus}
+                onChange={(e) => setPaymentStatus(e.target.value as SalePaymentStatus)}
+              >
+                <option value="pending">{SALE_PAYMENT_LABELS.pending}</option>
+                <option value="paid">{SALE_PAYMENT_LABELS.paid}</option>
+              </select>
             </div>
           </div>
 
@@ -729,15 +798,39 @@ export function SalesPage() {
         />
       ) : (
         <>
-      {monthFilter ? (
+      {monthFilter || paymentFilter ? (
         <p className="text-sm text-muted-foreground">
-          Filtro ativo: <span className="font-medium text-foreground">{formatMonthLabel(monthFilter)}</span>
+          {monthFilter ? (
+            <>
+              Filtro ativo: <span className="font-medium text-foreground">{formatMonthLabel(monthFilter)}</span>
+            </>
+          ) : null}
+          {monthFilter && paymentFilter ? ' · ' : null}
+          {paymentFilter ? (
+            <>
+              Pagamento:{' '}
+              <span className="font-medium text-foreground">{SALE_PAYMENT_LABELS[paymentFilter]}</span>
+            </>
+          ) : null}
           {' — '}
-          {orderGroups.length} de {totalOrderCount} pedido{totalOrderCount === 1 ? '' : 's'}
+          {orderGroups.length} pedido{orderGroups.length === 1 ? '' : 's'} exibido{orderGroups.length === 1 ? '' : 's'}
+          {pendingOrderCount > 0 ? (
+            <>
+              {' '}
+              · <span className="font-medium text-amber-800 dark:text-amber-300">{pendingOrderCount} pendente{pendingOrderCount === 1 ? '' : 's'}</span>
+            </>
+          ) : null}
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">
-          {totalOrderCount} pedido{totalOrderCount === 1 ? '' : 's'} no total. Use &quot;Busca por mês&quot; para refinar.
+          {totalOrderCount} pedido{totalOrderCount === 1 ? '' : 's'} no total
+          {pendingOrderCount > 0 ? (
+            <>
+              {' '}
+              · <span className="font-medium text-amber-800 dark:text-amber-300">{pendingOrderCount} pendente{pendingOrderCount === 1 ? '' : 's'}</span>
+            </>
+          ) : null}
+          . Use os filtros acima para refinar.
         </p>
       )}
 
@@ -783,13 +876,29 @@ export function SalesPage() {
           <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
             Nenhuma venda registrada ainda. Clique em &quot;Novo lançamento&quot; para começar.
           </div>
-        ) : orderGroups.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            Nenhum pedido em {formatMonthLabel(monthFilter)}.{' '}
-            <button type="button" className="font-medium text-primary underline" onClick={() => setMonthFilter('')}>
-              Ver todas
-            </button>
-          </div>
+          ) : orderGroups.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              {paymentFilter ? (
+                <>
+                  Nenhum pedido {paymentFilter === 'paid' ? 'pago' : 'pendente'}
+                  {monthFilter ? ` em ${formatMonthLabel(monthFilter)}` : ''}.{' '}
+                  <button
+                    type="button"
+                    className="font-medium text-primary underline"
+                    onClick={() => setPaymentFilter('')}
+                  >
+                    Ver todos
+                  </button>
+                </>
+              ) : (
+                <>
+                  Nenhum pedido em {formatMonthLabel(monthFilter)}.{' '}
+                  <button type="button" className="font-medium text-primary underline" onClick={() => setMonthFilter('')}>
+                    Ver todas
+                  </button>
+                </>
+              )}
+            </div>
         ) : (
           <div className="max-h-[min(70vh,720px)] space-y-3 overflow-y-auto pr-1">
             {orderGroups.map((groupLines) => (
@@ -801,7 +910,11 @@ export function SalesPage() {
                 onDeleteGroup={() => deleteGroupMutation.mutate(groupLines.map((s) => s.id))}
                 onDeleteLine={(id) => deleteLineMutation.mutate(id)}
                 onSaveTax={(lineIds, tax) => updateTaxMutation.mutateAsync({ lineIds, ...tax })}
+                onTogglePayment={(firstLineId, nextStatus) =>
+                  updatePaymentMutation.mutateAsync({ firstLineId, payment_status: nextStatus })
+                }
                 isSavingTax={updateTaxMutation.isPending}
+                isSavingPayment={updatePaymentMutation.isPending}
                 isDeletingGroup={deleteGroupMutation.isPending}
                 isDeletingLine={deleteLineMutation.isPending}
                 renderLineReport={(sale, product) => <SaleLineReport sale={sale} product={product} />}

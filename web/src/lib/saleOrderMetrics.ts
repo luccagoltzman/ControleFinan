@@ -41,3 +41,20 @@ export function orderTaxPercent(lines: Pick<Sale, 'tax_percent_snapshot'>[]): nu
 export function orderNetAfterTax(lines: Sale[]): number {
   return orderProfitPlusCommission(lines) - orderTaxAmount(lines)
 }
+
+/** Status de pagamento do pedido (primeira linha do grupo). */
+export function orderPaymentStatus(lines: Pick<Sale, 'payment_status' | 'created_at'>[]): Sale['payment_status'] {
+  const sorted = [...lines].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  const paid = sorted.find((l) => l.payment_status === 'paid')
+  if (paid) return 'paid'
+  return sorted[0]?.payment_status ?? 'pending'
+}
+
+export function orderPaidAt(lines: Pick<Sale, 'paid_at' | 'created_at' | 'payment_status'>[]): string | null {
+  const sorted = [...lines].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  return sorted.find((l) => l.payment_status === 'paid')?.paid_at ?? sorted[0]?.paid_at ?? null
+}
+
+export function orderFirstLineId(lines: Pick<Sale, 'id' | 'created_at'>[]): string {
+  return [...lines].sort((a, b) => a.created_at.localeCompare(b.created_at))[0]!.id
+}

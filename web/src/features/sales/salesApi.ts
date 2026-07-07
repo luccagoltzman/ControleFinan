@@ -1,6 +1,8 @@
 import { supabase } from '../../app/supabaseClient'
 import { removeStoragePaths } from './saleAttachmentsApi'
 
+export type SalePaymentStatus = 'pending' | 'paid'
+
 export type Sale = {
   id: string
   organization_id: string
@@ -22,6 +24,9 @@ export type Sale = {
   tax_amount: number | null
   /** % do imposto sobre lucro+comissão (snapshot na 1ª linha). */
   tax_percent_snapshot: number | null
+  /** Pagamento do pedido (na 1ª linha do pedido). */
+  payment_status: SalePaymentStatus
+  paid_at: string | null
   notes: string | null
   created_at: string
   product?: { name: string } | null
@@ -30,7 +35,7 @@ export type Sale = {
 }
 
 const SALE_COLUMNS_BASE =
-  'id, organization_id, order_id, product_id, region_id, sold_at, qty, qty_unit, unit_price, unit_cost_snapshot, commission_percent_snapshot, commission_amount, tax_amount, tax_percent_snapshot, notes, created_at, products ( name ), regions!region_id ( name )'
+  'id, organization_id, order_id, product_id, region_id, sold_at, qty, qty_unit, unit_price, unit_cost_snapshot, commission_percent_snapshot, commission_amount, tax_amount, tax_percent_snapshot, payment_status, paid_at, notes, created_at, products ( name ), regions!region_id ( name )'
 
 const SALE_COLUMNS_WITH_REGION_2 = `${SALE_COLUMNS_BASE.replace('region_id,', 'region_id, region_id_2,')}, region_secondary:regions!region_id_2 ( name )`
 
@@ -51,6 +56,8 @@ function mapSaleRow(row: Record<string, unknown>): Sale {
     commission_amount: Number(row.commission_amount ?? 0),
     tax_amount: row.tax_amount != null ? Number(row.tax_amount) : null,
     tax_percent_snapshot: row.tax_percent_snapshot != null ? Number(row.tax_percent_snapshot) : null,
+    payment_status: ((row.payment_status as SalePaymentStatus | undefined) ?? 'pending') as SalePaymentStatus,
+    paid_at: (row.paid_at as string | null | undefined) ?? null,
     notes: (row.notes as string | null) ?? null,
     created_at: row.created_at as string,
     product: (row.products as { name: string } | null) ?? null,
@@ -60,7 +67,10 @@ function mapSaleRow(row: Record<string, unknown>): Sale {
 }
 
 const SALE_COLUMNS_NO_TAX = SALE_COLUMNS_BASE.replace('tax_amount, ', '').replace('tax_percent_snapshot, ', '')
+const SALE_COLUMNS_NO_PAYMENT = SALE_COLUMNS_BASE.replace('payment_status, paid_at, ', '')
 const SALE_COLUMNS_WITH_REGION_2_NO_TAX = `${SALE_COLUMNS_NO_TAX.replace('region_id,', 'region_id, region_id_2,')}, region_secondary:regions!region_id_2 ( name )`
+const SALE_COLUMNS_WITH_REGION_2_NO_PAYMENT = `${SALE_COLUMNS_NO_PAYMENT.replace('region_id,', 'region_id, region_id_2,')}, region_secondary:regions!region_id_2 ( name )`
+const SALE_COLUMNS_WITH_REGION_2_NO_TAX_NO_PAYMENT = `${SALE_COLUMNS_NO_TAX.replace('region_id,', 'region_id, region_id_2,').replace('payment_status, paid_at, ', '')}, region_secondary:regions!region_id_2 ( name )`
 
 function isSchemaColumnError(err: { message?: string } | null): boolean {
   const msg = (err?.message ?? '').toLowerCase()
@@ -75,6 +85,11 @@ function isSchemaColumnError(err: { message?: string } | null): boolean {
 function isTaxSchemaError(err: { message?: string } | null): boolean {
   const msg = (err?.message ?? '').toLowerCase()
   return msg.includes('tax_amount') || msg.includes('tax_percent_snapshot')
+}
+
+function isPaymentSchemaError(err: { message?: string } | null): boolean {
+  const msg = (err?.message ?? '').toLowerCase()
+  return msg.includes('payment_status') || msg.includes('paid_at')
 }
 
 function isRegion2SchemaError(err: { message?: string } | null): boolean {
@@ -108,8 +123,11 @@ export async function fetchSales(input: {
 
   const selectVariants = [
     SALE_COLUMNS_WITH_REGION_2,
+    SALE_COLUMNS_WITH_REGION_2_NO_PAYMENT,
     SALE_COLUMNS_WITH_REGION_2_NO_TAX,
+    SALE_COLUMNS_WITH_REGION_2_NO_TAX_NO_PAYMENT,
     SALE_COLUMNS_NO_TAX,
+    SALE_COLUMNS_NO_PAYMENT,
     SALE_COLUMNS_BASE,
   ]
 
@@ -143,14 +161,23 @@ export async function createSale(input: {
   notes: string | null
   tax_amount?: number | null
   tax_percent_snapshot?: number | null
+  payment_status?: SalePaymentStatus
+  paid_at?: string | null
 }) {
-  const { order_id, region_id_2, tax_amount, tax_percent_snapshot, ...rest } = input
+  const { order_id, region_id_2, tax_amount, tax_percent_snapshot, payment_status, paid_at, ...rest } = input
   const row: Record<string, unknown> = { ...rest }
   if (order_id != null && order_id !== '') row.order_id = order_id
   if (region_id_2 != null && region_id_2 !== '') row.region_id_2 = region_id_2
   if (tax_amount !== undefined) row.tax_amount = tax_amount
   if (tax_percent_snapshot !== undefined) row.tax_percent_snapshot = tax_percent_snapshot
+  if (payment_status !== undefined) row.payment_status = payment_status
+  if (paid_at !== undefined) row.paid_at = paid_at
   let { error } = await supabase.from('sales').insert(row)
+  if (error && isPaymentSchemaError(error)) {
+    const { payment_status: _ps, paid_at: _pa, ...legacyRow } = row
+    const retry = await supabase.from('sales').insert(legacyRow)
+    error = retry.error
+  }
   if (error && isTaxSchemaError(error)) {
     const { tax_amount: _a, tax_percent_snapshot: _p, ...legacyRow } = row
     const retry = await supabase.from('sales').insert(legacyRow)
@@ -168,6 +195,8 @@ export async function createSaleOrder(input: {
   notes: string | null
   tax_amount: number | null
   tax_percent_snapshot: number | null
+  payment_status?: SalePaymentStatus
+  paid_at?: string | null
   lines: Array<{
     product_id: string
     qty: number
@@ -179,6 +208,8 @@ export async function createSaleOrder(input: {
   }>
 }) {
   if (input.lines.length === 0) return
+  const paymentStatus = input.payment_status ?? 'pending'
+  const paidAt = paymentStatus === 'paid' ? (input.paid_at ?? new Date().toISOString()) : null
   const rows = input.lines.map((l, index) => ({
     organization_id: input.organization_id,
     order_id: input.order_id,
@@ -195,8 +226,18 @@ export async function createSaleOrder(input: {
     commission_amount: l.commission_amount,
     tax_amount: index === 0 ? input.tax_amount : null,
     tax_percent_snapshot: index === 0 ? input.tax_percent_snapshot : null,
+    payment_status: index === 0 ? paymentStatus : 'pending',
+    paid_at: index === 0 ? paidAt : null,
   }))
   let { error } = await supabase.from('sales').insert(rows)
+  if (error && isPaymentSchemaError(error)) {
+    const legacyRows = rows.map(({ payment_status: _ps, paid_at: _pa, ...r }) => r)
+    const retry = await supabase.from('sales').insert(legacyRows)
+    error = retry.error
+    if (!error && paymentStatus === 'paid') {
+      throw new Error('Status de pagamento não disponível no banco. Aplique a migration 026 no Supabase.')
+    }
+  }
   if (error && isTaxSchemaError(error)) {
     const legacyRows = rows.map(({ tax_amount: _a, tax_percent_snapshot: _p, ...r }) => r)
     const retry = await supabase.from('sales').insert(legacyRows)
@@ -245,20 +286,36 @@ export async function updateSale(input: {
   notes: string | null
   tax_amount?: number | null
   tax_percent_snapshot?: number | null
+  payment_status?: SalePaymentStatus
+  paid_at?: string | null
 }) {
-  const { region_id_2, tax_amount, tax_percent_snapshot, ...rest } = input
+  const { region_id_2, tax_amount, tax_percent_snapshot, payment_status, paid_at, ...rest } = input
   const patch: Record<string, unknown> = { ...rest }
   if (region_id_2 !== undefined) {
     patch.region_id_2 = region_id_2 && region_id_2 !== '' ? region_id_2 : null
   }
   if (tax_amount !== undefined) patch.tax_amount = tax_amount
   if (tax_percent_snapshot !== undefined) patch.tax_percent_snapshot = tax_percent_snapshot
+  if (payment_status !== undefined) patch.payment_status = payment_status
+  if (paid_at !== undefined) patch.paid_at = paid_at
   let { error } = await supabase
     .from('sales')
     .update(patch)
     .eq('organization_id', input.organization_id)
     .eq('id', input.id)
 
+  if (error && isPaymentSchemaError(error)) {
+    const { payment_status: _ps, paid_at: _pa, ...legacyPatch } = patch
+    const retry = await supabase
+      .from('sales')
+      .update(legacyPatch)
+      .eq('organization_id', input.organization_id)
+      .eq('id', input.id)
+    error = retry.error
+    if (!error && (payment_status !== undefined || paid_at !== undefined)) {
+      throw new Error('Status de pagamento não disponível no banco. Aplique a migration 026 no Supabase.')
+    }
+  }
   if (error && isRegion2SchemaError(error) && input.region_id_2) {
     throw new Error(
       'Segunda região não disponível no banco. Aplique a migration 022_sales_second_region.sql no Supabase.',
@@ -298,6 +355,8 @@ export async function updateSaleOrder(input: {
   notes: string | null
   tax_amount: number | null
   tax_percent_snapshot: number | null
+  payment_status?: SalePaymentStatus
+  paid_at?: string | null
   lines: SaleLinePayload[]
   removed_sale_ids: string[]
 }) {
@@ -306,6 +365,8 @@ export async function updateSaleOrder(input: {
   }
 
   const orderId = input.order_id
+  const paymentStatus = input.payment_status ?? 'pending'
+  const paidAt = paymentStatus === 'paid' ? (input.paid_at ?? new Date().toISOString()) : null
 
   for (let i = 0; i < input.lines.length; i++) {
     const line = input.lines[i]!
@@ -327,6 +388,8 @@ export async function updateSaleOrder(input: {
       commission_amount: line.commission_amount,
       tax_amount: lineTax,
       tax_percent_snapshot: lineTaxPct,
+      payment_status: i === 0 ? paymentStatus : 'pending',
+      paid_at: i === 0 ? paidAt : null,
     }
 
     if (line.id) {
@@ -346,9 +409,16 @@ export async function updateSaleOrder(input: {
         notes: input.notes,
         tax_amount: lineTax,
         tax_percent_snapshot: lineTaxPct,
+        payment_status: i === 0 ? paymentStatus : undefined,
+        paid_at: i === 0 ? paidAt : undefined,
       })
     } else {
-      const { error } = await supabase.from('sales').insert(row)
+      let { error } = await supabase.from('sales').insert(row)
+      if (error && isPaymentSchemaError(error)) {
+        const { payment_status: _ps, paid_at: _pa, ...legacyRow } = row
+        const retry = await supabase.from('sales').insert(legacyRow)
+        error = retry.error
+      }
       if (error && isTaxSchemaError(error)) {
         const { tax_amount: _a, tax_percent_snapshot: _p, ...legacyRow } = row
         const retry = await supabase.from('sales').insert(legacyRow)
@@ -370,6 +440,28 @@ export async function updateSaleOrder(input: {
       }
     }
   }
+}
+
+/** Atualiza só o status de pagamento do pedido (primeira linha do grupo). */
+export async function updateOrderPayment(input: {
+  organization_id: string
+  firstLineId: string
+  payment_status: SalePaymentStatus
+}) {
+  const paid_at = input.payment_status === 'paid' ? new Date().toISOString() : null
+  let { error } = await supabase
+    .from('sales')
+    .update({
+      payment_status: input.payment_status,
+      paid_at,
+    })
+    .eq('organization_id', input.organization_id)
+    .eq('id', input.firstLineId)
+
+  if (error && isPaymentSchemaError(error)) {
+    throw new Error('Status de pagamento não disponível no banco. Aplique a migration 026 no Supabase.')
+  }
+  if (error) throw error
 }
 
 /** Atualiza só o imposto do pedido (primeira linha do grupo). */

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import type { Product } from '../products/productsApi'
-import type { Sale } from './salesApi'
+import type { Sale, SalePaymentStatus } from './salesApi'
 import { Button } from '../../components/ui/button'
 import {
   Dialog,
@@ -17,7 +17,10 @@ import { formatSaleRegions } from '../../lib/saleRegions'
 import { parseSaleTaxInput } from '../../lib/saleTax'
 import {
   orderCommission,
+  orderFirstLineId,
   orderNetAfterTax,
+  orderPaidAt,
+  orderPaymentStatus,
   orderProfit,
   orderProfitPlusCommission,
   orderTaxAmount,
@@ -25,6 +28,7 @@ import {
 } from '../../lib/saleOrderMetrics'
 import { SaleTaxFields, loadSaleTaxDrafts } from './SaleTaxFields'
 import { SaleAttachmentsSection } from './SaleAttachmentsSection'
+import { SALE_PAYMENT_LABELS, salePaymentBadgeClass } from '../../lib/salePayment'
 
 function OrderMetric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
@@ -46,7 +50,9 @@ export function SalesOrderCard({
   onDeleteGroup,
   onDeleteLine,
   onSaveTax,
+  onTogglePayment,
   isSavingTax,
+  isSavingPayment,
   isDeletingGroup,
   isDeletingLine,
   renderLineReport,
@@ -60,7 +66,9 @@ export function SalesOrderCard({
     lineIds: string[],
     tax: { tax_amount: number | null; tax_percent_snapshot: number | null },
   ) => Promise<unknown>
+  onTogglePayment: (firstLineId: string, nextStatus: SalePaymentStatus) => Promise<unknown>
   isSavingTax: boolean
+  isSavingPayment: boolean
   isDeletingGroup: boolean
   isDeletingLine: boolean
   renderLineReport: (sale: Sale, product: Product | null) => ReactNode
@@ -86,6 +94,9 @@ export function SalesOrderCard({
   const taxPct = orderTaxPercent(lines)
   const netAfterTax = orderNetAfterTax(lines)
   const margin = revenue > 0 ? (profit / revenue) * 100 : 0
+  const paymentStatus = orderPaymentStatus(lines)
+  const paidAt = orderPaidAt(lines)
+  const firstLineId = orderFirstLineId(lines)
 
   const productNames = lines.map((s) => s.product?.name ?? 'Produto')
   const title = multi ? `Pedido com ${lines.length} produtos` : productNames[0]!
@@ -110,6 +121,9 @@ export function SalesOrderCard({
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <time className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{dateStr}</time>
+            <span className={`rounded-md border px-2 py-0.5 text-xs font-medium ${salePaymentBadgeClass(paymentStatus)}`}>
+              {SALE_PAYMENT_LABELS[paymentStatus]}
+            </span>
             {regions ? (
               <span className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">{regions}</span>
             ) : null}
@@ -141,9 +155,24 @@ export function SalesOrderCard({
           {first.notes ? (
             <p className="line-clamp-2 text-xs text-muted-foreground italic">{first.notes}</p>
           ) : null}
+          {paidAt ? (
+            <p className="text-xs text-muted-foreground">
+              Pago em {new Date(paidAt).toLocaleString('pt-BR')}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-1 lg:justify-end">
+          <Button
+            variant={paymentStatus === 'paid' ? 'outline' : 'default'}
+            size="sm"
+            disabled={isSavingPayment || isDeletingGroup || isDeletingLine}
+            onClick={() =>
+              onTogglePayment(firstLineId, paymentStatus === 'paid' ? 'pending' : 'paid')
+            }
+          >
+            {isSavingPayment ? 'Salvando…' : paymentStatus === 'paid' ? 'Marcar pendente' : 'Marcar pago'}
+          </Button>
           <Button variant="outline" size="sm" onClick={onEdit} disabled={isDeletingGroup || isDeletingLine}>
             <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden />
             Editar
@@ -168,6 +197,31 @@ export function SalesOrderCard({
                   {first.notes}
                 </p>
               ) : null}
+
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 p-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">Pagamento</div>
+                  <div className={`mt-1 inline-flex rounded-md border px-2 py-0.5 text-sm font-medium ${salePaymentBadgeClass(paymentStatus)}`}>
+                    {SALE_PAYMENT_LABELS[paymentStatus]}
+                  </div>
+                  {paidAt ? (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {new Date(paidAt).toLocaleString('pt-BR')}
+                    </div>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={paymentStatus === 'paid' ? 'outline' : 'default'}
+                  disabled={isSavingPayment || isDeletingGroup || isDeletingLine}
+                  onClick={() =>
+                    onTogglePayment(firstLineId, paymentStatus === 'paid' ? 'pending' : 'paid')
+                  }
+                >
+                  {isSavingPayment ? 'Salvando…' : paymentStatus === 'paid' ? 'Marcar pendente' : 'Marcar pago'}
+                </Button>
+              </div>
 
               <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
                 <div>
