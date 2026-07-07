@@ -1,6 +1,6 @@
 import { useMemo, useState, type ChangeEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { startOfMonth, endOfMonth, format as formatDate } from 'date-fns'
+import { format as formatDate } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { Activity, DollarSign, Filter, MapPin, Percent, PiggyBank, TrendingUp, Wallet } from 'lucide-react'
 import {
@@ -26,16 +26,10 @@ import { fetchProducts } from '../products/productsApi'
 import { fetchRegions } from '../regions/regionsApi'
 import { fetchSales } from '../sales/salesApi'
 import { commissionAmountFromSaleLine } from '../../lib/saleCommission'
+import { formatQueryError } from '../../lib/formatQueryError'
 import { saleMatchesRegionFilter, saleRegionIds } from '../../lib/saleRegions'
 import { SalesRegionMap, type SalesRegionMarker } from './SalesRegionMap'
 import { BRAZIL_MAP_CENTER, suggestedAnchorForRegionName } from '../../lib/regionMapAnchors'
-
-function monthRange(monthYYYYMM: string) {
-  const [y, m] = monthYYYYMM.split('-').map(Number)
-  const from = startOfMonth(new Date(y!, (m! - 1)!, 1))
-  const to = endOfMonth(from)
-  return { fromIso: new Date(Date.UTC(from.getFullYear(), from.getMonth(), from.getDate(), 0, 0, 0)).toISOString(), toIso: new Date(Date.UTC(to.getFullYear(), to.getMonth(), to.getDate(), 23, 59, 59)).toISOString() }
-}
 
 function formatShort(dateIso: string) {
   const d = new Date(dateIso)
@@ -49,8 +43,6 @@ export function DashboardPage() {
   const [productFilter, setProductFilter] = useState<string>('all')
   const [regionFilter, setRegionFilter] = useState<string>('all')
 
-  const { fromIso, toIso } = useMemo(() => monthRange(month), [month])
-
   const productsQuery = useQuery({
     queryKey: ['products', { org: activeOrgId }],
     queryFn: () => fetchProducts(activeOrgId!),
@@ -58,8 +50,8 @@ export function DashboardPage() {
   })
 
   const salesQuery = useQuery({
-    queryKey: ['sales', { org: activeOrgId, month }],
-    queryFn: () => fetchSales({ organizationId: activeOrgId!, fromIso, toIso }),
+    queryKey: ['sales', { org: activeOrgId, all: true }],
+    queryFn: () => fetchSales({ organizationId: activeOrgId! }),
     enabled: !!activeOrgId,
   })
 
@@ -76,12 +68,12 @@ export function DashboardPage() {
   }, [productsQuery.data])
 
   const filteredSales = useMemo(() => {
-    let s = salesQuery.data ?? []
+    let s = (salesQuery.data ?? []).filter((x) => x.sold_at.slice(0, 7) === month)
     if (unitFilter !== 'all') s = s.filter((x) => x.qty_unit === unitFilter)
     if (productFilter !== 'all') s = s.filter((x) => x.product_id === productFilter)
     if (regionFilter !== 'all') s = s.filter((x) => saleMatchesRegionFilter(x, regionFilter))
     return s
-  }, [salesQuery.data, unitFilter, productFilter, regionFilter])
+  }, [salesQuery.data, month, unitFilter, productFilter, regionFilter])
 
   const totals = useMemo(() => {
     const revenue = filteredSales.reduce((acc, s) => acc + s.qty * s.unit_price, 0)
@@ -265,6 +257,27 @@ export function DashboardPage() {
         />
       ) : (
         <>
+      {(salesQuery.isError || productsQuery.isError || regionsQuery.isError) && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Erro ao carregar dados do dashboard.{' '}
+          <span className="text-muted-foreground">
+            {salesQuery.isError
+              ? formatQueryError(salesQuery.error)
+              : productsQuery.isError
+                ? formatQueryError(productsQuery.error)
+                : formatQueryError(regionsQuery.error)}
+          </span>
+        </div>
+      )}
+
+      {!salesQuery.isError && (salesQuery.data ?? []).filter((x) => x.sold_at.slice(0, 7) === month).length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Nenhuma venda em{' '}
+          {new Date(`${month}-01T12:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}. Altere o
+          mês no canto superior ou cadastre vendas nesse período.
+        </p>
+      ) : null}
+
       <Card className="border-border/60 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/50">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
@@ -425,9 +438,8 @@ export function DashboardPage() {
               </span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-[420px] min-h-[420px]">
-            <div className="h-full min-h-[1px] w-full min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
+          <CardContent className="h-[420px]">
+            <ResponsiveContainer width="100%" height={400} minWidth={0}>
               <AreaChart data={daily} margin={{ left: 12, right: 16, top: 16, bottom: 28 }}>
                 <defs>
                   <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
@@ -485,8 +497,7 @@ export function DashboardPage() {
                   isAnimationActive={false}
                 />
               </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 
@@ -494,9 +505,8 @@ export function DashboardPage() {
           <CardHeader className="pb-3">
             <CardTitle>Receita por produto (Top 8)</CardTitle>
           </CardHeader>
-          <CardContent className="h-[420px] min-h-[420px]">
-            <div className="h-full min-h-[1px] w-full min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
+          <CardContent className="h-[420px]">
+            <ResponsiveContainer width="100%" height={400} minWidth={0}>
               <BarChart data={byProduct} margin={{ left: 12, right: 16, top: 16, bottom: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.35} />
                 <XAxis dataKey="name" tickMargin={8} hide />
@@ -516,8 +526,7 @@ export function DashboardPage() {
                 <Bar dataKey="revenue" name="Receita" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
                 <Bar dataKey="profit" name="Lucro" fill="hsl(142 76% 36%)" radius={[6, 6, 0, 0]} />
               </BarChart>
-              </ResponsiveContainer>
-            </div>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
 

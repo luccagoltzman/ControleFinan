@@ -59,9 +59,22 @@ function mapSaleRow(row: Record<string, unknown>): Sale {
   }
 }
 
+const SALE_COLUMNS_NO_TAX = SALE_COLUMNS_BASE.replace('tax_amount, ', '').replace('tax_percent_snapshot, ', '')
+const SALE_COLUMNS_WITH_REGION_2_NO_TAX = `${SALE_COLUMNS_NO_TAX.replace('region_id,', 'region_id, region_id_2,')}, region_secondary:regions!region_id_2 ( name )`
+
+function isSchemaColumnError(err: { message?: string } | null): boolean {
+  const msg = (err?.message ?? '').toLowerCase()
+  return (
+    msg.includes('could not find') ||
+    msg.includes('schema cache') ||
+    msg.includes('does not exist') ||
+    msg.includes('column')
+  )
+}
+
 function isTaxSchemaError(err: { message?: string } | null): boolean {
   const msg = (err?.message ?? '').toLowerCase()
-  return msg.includes('tax_amount') || msg.includes('tax_percent_snapshot') || msg.includes('could not find') || msg.includes('schema cache')
+  return msg.includes('tax_amount') || msg.includes('tax_percent_snapshot')
 }
 
 function isRegion2SchemaError(err: { message?: string } | null): boolean {
@@ -88,32 +101,30 @@ export async function fetchSales(input: {
       .order('sold_at', { ascending: false })
 
     if (input.fromIso) q = q.gte('sold_at', input.fromIso)
-    if (input.toIso) q = q.lt('sold_at', input.toIso)
+    if (input.toIso) q = q.lte('sold_at', input.toIso)
     if (!input.fromIso && !input.toIso) q = q.limit(10000)
     return q
   }
 
-  let { data, error } = await run(SALE_COLUMNS_WITH_REGION_2)
+  const selectVariants = [
+    SALE_COLUMNS_WITH_REGION_2,
+    SALE_COLUMNS_WITH_REGION_2_NO_TAX,
+    SALE_COLUMNS_NO_TAX,
+    SALE_COLUMNS_BASE,
+  ]
 
-  if (error && (isRegion2SchemaError(error) || isTaxSchemaError(error))) {
-    let legacySelect = SALE_COLUMNS_BASE
-    if (isTaxSchemaError(error)) {
-      legacySelect = legacySelect.replace('tax_amount, ', '').replace('tax_percent_snapshot, ', '')
+  let lastError: { message?: string } | null = null
+  for (const select of selectVariants) {
+    const { data, error } = await run(select)
+    if (!error) {
+      return (data ?? []).map((row) => mapSaleRow(row as unknown as Record<string, unknown>))
     }
-    const legacy = await run(isRegion2SchemaError(error) && !isTaxSchemaError(error) ? SALE_COLUMNS_BASE : legacySelect)
-    data = legacy.data
-    error = legacy.error
+    lastError = error
+    if (!isSchemaColumnError(error)) break
   }
 
-  if (error && isRegion2SchemaError(error)) {
-    const legacy = await run(SALE_COLUMNS_BASE.replace('tax_amount, ', '').replace('tax_percent_snapshot, ', ''))
-    data = legacy.data
-    error = legacy.error
-  }
-
-  if (error) throw error
-
-  return (data ?? []).map((row) => mapSaleRow(row as unknown as Record<string, unknown>))
+  if (lastError) throw lastError
+  return []
 }
 
 export async function createSale(input: {
