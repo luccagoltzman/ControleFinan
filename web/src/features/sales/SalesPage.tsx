@@ -1,11 +1,11 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { useMemo, useState, type ChangeEvent } from 'react'
 import { useOrg } from '../../app/org/useOrg'
 import { queryClient } from '../../app/queryClient'
 import { PageHeader } from '../../components/PageHeader'
+import { StatCard, StatSection } from '../../components/stats/StatCard'
 import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { MoneyInput } from '../../components/inputs/MoneyInput'
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
@@ -17,12 +17,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '../../components/ui/dialog'
 import { toast } from '../../components/toast/ToastHost'
 import { formatMoney, parseMoneyPtBr } from '../../lib/money'
 import { parseNumberPtBr } from '../../lib/number'
-import { fetchProducts, type Product } from '../products/productsApi'
+import { fetchProducts } from '../products/productsApi'
 import {
   createSaleOrder,
   deleteSale,
@@ -34,25 +33,17 @@ import {
   type SaleLinePayload,
 } from './salesApi'
 import { SaleTaxFields, loadSaleTaxDrafts } from './SaleTaxFields'
-import { SaleAttachmentsSection } from './SaleAttachmentsSection'
 import { parseSaleTaxInput } from '../../lib/saleTax'
+import { SalesOrderCard } from './SalesOrderCard'
 import { fetchRegions } from '../regions/regionsApi'
 import {
   commissionAmountFromSaleLine,
   computeSaleCommissionAmount,
   effectiveCommissionPercent,
 } from '../../lib/saleCommission'
-import { formatSaleRegions } from '../../lib/saleRegions'
 import { formatQueryError } from '../../lib/formatQueryError'
-import {
-  orderCommission,
-  orderNetAfterTax,
-  orderProfit,
-  orderProfitPlusCommission,
-  orderTaxAmount,
-  orderTaxPercent,
-} from '../../lib/saleOrderMetrics'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { orderTaxAmount } from '../../lib/saleOrderMetrics'
+import { Plus, Trash2 } from 'lucide-react'
 
 type OrderDialogState = { mode: 'create' } | { mode: 'edit'; lines: Sale[] }
 
@@ -484,9 +475,251 @@ export function SalesPage() {
                 Ver todas
               </Button>
             ) : null}
+            <Button type="button" className="h-10" onClick={openCreateDialog}>
+              <Plus className="mr-2 h-4 w-4" aria-hidden />
+              Novo lançamento
+            </Button>
           </div>
         }
       />
+
+      <Dialog
+        open={isOrderDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) setOrderDialog(null)
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{isEditMode ? 'Editar pedido / venda' : 'Novo pedido / venda'}</DialogTitle>
+            <DialogDescription>
+              {isEditMode
+                ? 'Altere regiões, data, produtos e valores. Remova linhas ou adicione produtos; a comissão é recalculada ao salvar.'
+                : 'Preencha os dados comuns e adicione uma linha por produto. Use "Adicionar produto" para mais itens no mesmo pedido.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+            <div className="md:col-span-4">
+              <Label>Região / CD 1</Label>
+              <select
+                className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={regionId}
+                onChange={(e) => setRegionId(e.target.value)}
+              >
+                <option value="">(Sem região)</option>
+                {(regionsQuery.data ?? []).map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-4">
+              <Label>Região / CD 2 (opcional)</Label>
+              <select
+                className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={regionId2}
+                onChange={(e) => setRegionId2(e.target.value)}
+              >
+                <option value="">(Nenhum)</option>
+                {(regionsQuery.data ?? []).map((r) => (
+                  <option key={r.id} value={r.id} disabled={regionId === r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="md:col-span-4">
+              <Label>Data</Label>
+              <Input className="mt-1" type="date" value={soldDate} onChange={(e) => setSoldDate(e.target.value)} />
+            </div>
+            <div className="md:col-span-12">
+              <Label>Observações (todo o pedido)</Label>
+              <Textarea className="mt-1" placeholder="Cliente, NF, detalhes…" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-4">
+            {lines.map((line, index) => {
+              const selectedProduct = products.find((p) => p.id === line.product_id) ?? null
+              return (
+                <div key={line.key} className="rounded-lg border border-border bg-muted/20 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">Produto {index + 1}</span>
+                    {lines.length > 1 ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                        Remover linha
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+                    <div className="md:col-span-6">
+                      <Label>Produto</Label>
+                      <select
+                        className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={line.product_id}
+                        onChange={(e) => onPickProduct(line.key, e.target.value, line)}
+                      >
+                        <option value="">Selecione…</option>
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="md:col-span-3">
+                      <Label>Unidade</Label>
+                      <select
+                        className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        value={line.qty_unit}
+                        onChange={(e) => {
+                          const next = e.target.value as 'kg' | 'un'
+                          updateLine(line.key, { qty_unit: next })
+                          if (line.product_id) {
+                            const suggested = computeSuggestedCostSnapshot(line.product_id, next)
+                            if (suggested != null) {
+                              updateLine(line.key, { unit_cost_snapshot: String(suggested).replace('.', ',') })
+                            }
+                            const suggestedPrice = computeSuggestedUnitPrice(line.product_id, next)
+                            if (!line.unit_price?.trim() && suggestedPrice != null) {
+                              updateLine(line.key, { unit_price: String(suggestedPrice).replace('.', ',') })
+                            }
+                          }
+                        }}
+                      >
+                        <option value="kg">kg</option>
+                        <option value="un">un</option>
+                      </select>
+                    </div>
+                    <div className="md:col-span-3">
+                      <Label>Qtd. ({line.qty_unit})</Label>
+                      <Input
+                        className="mt-1"
+                        inputMode="decimal"
+                        placeholder="0"
+                        value={line.qty}
+                        onChange={(e) => updateLine(line.key, { qty: e.target.value })}
+                      />
+                    </div>
+                    <div className="md:col-span-6">
+                      <MoneyInput
+                        label={`Preço por ${line.qty_unit}`}
+                        value={line.unit_price}
+                        onChange={(e) => updateLine(line.key, { unit_price: e.target.value })}
+                      />
+                      {selectedProduct ? (
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          Sugestão:{' '}
+                          {(() => {
+                            const cost =
+                              line.qty_unit === 'kg'
+                                ? (selectedProduct.latest_cost_kg?.cost ?? null)
+                                : (selectedProduct.latest_cost_un?.cost ?? null)
+                            const target =
+                              line.qty_unit === 'kg' ? selectedProduct.target_profit_kg : selectedProduct.target_profit_un
+                            if (cost == null || target == null) return '—'
+                            return formatMoney(cost + target)
+                          })()}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="md:col-span-6">
+                      <MoneyInput
+                        label="Custo (snapshot)"
+                        value={line.unit_cost_snapshot}
+                        onChange={(e) => updateLine(line.key, { unit_cost_snapshot: e.target.value })}
+                      />
+                    </div>
+                    {selectedProduct ? (
+                      <div className="md:col-span-12 rounded-md border border-border bg-background/80 px-3 py-2 text-xs text-muted-foreground">
+                        {(() => {
+                          const q = parseNumberPtBr(line.qty ?? '')
+                          const costUnit = parseMoneyPtBr(line.unit_cost_snapshot ?? '')
+                          const pct = effectiveCommissionPercent(selectedProduct, orgDefaultCommission)
+                          if (q == null || costUnit == null || q <= 0) {
+                            return (
+                              <>
+                                Comissão %: {pct.toFixed(2).replace('.', ',')}%
+                                {selectedProduct.commission_percent != null ? ' (produto)' : ' (organização)'}
+                                {' — '}
+                                informe qtd e custo para ver a base (custo total).
+                              </>
+                            )
+                          }
+                          const comm = computeSaleCommissionAmount({
+                            qty: q,
+                            unitCostSnapshot: costUnit,
+                            product: selectedProduct,
+                            orgDefaultPercent: orgDefaultCommission,
+                          })
+                          return (
+                            <>
+                              <div>
+                                Comissão {pct.toFixed(2).replace('.', ',')}% sobre custo total{' '}
+                                <span className="font-medium text-foreground">{formatMoney(comm.commissionBase)}</span>
+                                {' '}
+                                ({q} × {formatMoney(costUnit)})
+                              </div>
+                              <div className="mt-1 font-semibold text-foreground">
+                                Comissão estimada: {formatMoney(comm.commissionAmount)}
+                              </div>
+                            </>
+                          )
+                        })()}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-2 w-full sm:w-auto"
+            onClick={() => setLines((prev) => [...prev, newSaleLine()])}
+          >
+            <Plus className="mr-2 h-4 w-4" aria-hidden />
+            Adicionar produto
+          </Button>
+
+          <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4">
+            <div className="mb-3 text-sm font-semibold">Imposto sobre lucro + comissão</div>
+            <SaleTaxFields
+              baseAmount={draftProfitPlusCommission}
+              percent={taxPercent}
+              amount={taxAmount}
+              onPercentChange={setTaxPercent}
+              onAmountChange={setTaxAmount}
+            />
+          </div>
+
+          {errorMsg ? <div className="mt-3 text-sm text-destructive">{errorMsg}</div> : null}
+
+          <DialogFooter className="mt-4 gap-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setOrderDialog(null)}>
+              Cancelar
+            </Button>
+            <Button type="button" onClick={onSubmitOrderSave} disabled={saveOrderMutation.isPending}>
+              {saveOrderMutation.isPending
+                ? 'Salvando…'
+                : isEditMode
+                  ? 'Salvar alterações'
+                  : 'Salvar pedido'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {salesQuery.isLoading ? (
         <InteractivePageLoader
@@ -496,257 +729,6 @@ export function SalesPage() {
         />
       ) : (
         <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Cadastros</CardTitle>
-            <div className="text-sm text-muted-foreground">
-              Um pedido pode incluir vários produtos (mesma data, região e observações).
-            </div>
-          </div>
-          <Button type="button" onClick={openCreateDialog}>
-            Novo lançamento
-          </Button>
-          <Dialog
-            open={isOrderDialogOpen}
-            onOpenChange={(open) => {
-              if (!open) setOrderDialog(null)
-            }}
-          >
-            <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{isEditMode ? 'Editar pedido / venda' : 'Novo pedido / venda'}</DialogTitle>
-                <DialogDescription>
-                  {isEditMode
-                    ? 'Altere regiões, data, produtos e valores. Remova linhas ou adicione produtos; a comissão é recalculada ao salvar.'
-                    : 'Preencha os dados comuns e adicione uma linha por produto. Use "Adicionar produto" para mais itens no mesmo pedido.'}
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-                <div className="md:col-span-4">
-                  <Label>Região / CD 1</Label>
-                  <select
-                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    value={regionId}
-                    onChange={(e) => setRegionId(e.target.value)}
-                  >
-                    <option value="">(Sem região)</option>
-                    {(regionsQuery.data ?? []).map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="md:col-span-4">
-                  <Label>Região / CD 2 (opcional)</Label>
-                  <select
-                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    value={regionId2}
-                    onChange={(e) => setRegionId2(e.target.value)}
-                  >
-                    <option value="">(Nenhum)</option>
-                    {(regionsQuery.data ?? []).map((r) => (
-                      <option key={r.id} value={r.id} disabled={regionId === r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="md:col-span-4">
-                  <Label>Data</Label>
-                  <Input className="mt-1" type="date" value={soldDate} onChange={(e) => setSoldDate(e.target.value)} />
-                </div>
-                <div className="md:col-span-12">
-                  <Label>Observações (todo o pedido)</Label>
-                  <Textarea className="mt-1" placeholder="Cliente, NF, detalhes…" value={notes} onChange={(e) => setNotes(e.target.value)} />
-                </div>
-              </div>
-
-              <div className="mt-4 space-y-4">
-                {lines.map((line, index) => {
-                  const selectedProduct = products.find((p) => p.id === line.product_id) ?? null
-                  return (
-                    <div key={line.key} className="rounded-lg border border-border bg-muted/20 p-4">
-                      <div className="mb-3 flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold">Produto {index + 1}</span>
-                        {lines.length > 1 ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive"
-                            onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
-                          >
-                            <Trash2 className="h-4 w-4" aria-hidden />
-                            Remover linha
-                          </Button>
-                        ) : null}
-                      </div>
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-                        <div className="md:col-span-6">
-                          <Label>Produto</Label>
-                          <select
-                            className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            value={line.product_id}
-                            onChange={(e) => onPickProduct(line.key, e.target.value, line)}
-                          >
-                            <option value="">Selecione…</option>
-                            {products.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="md:col-span-3">
-                          <Label>Unidade</Label>
-                          <select
-                            className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            value={line.qty_unit}
-                            onChange={(e) => {
-                              const next = e.target.value as 'kg' | 'un'
-                              updateLine(line.key, { qty_unit: next })
-                              if (line.product_id) {
-                                const suggested = computeSuggestedCostSnapshot(line.product_id, next)
-                                if (suggested != null) {
-                                  updateLine(line.key, { unit_cost_snapshot: String(suggested).replace('.', ',') })
-                                }
-                                const suggestedPrice = computeSuggestedUnitPrice(line.product_id, next)
-                                if (!line.unit_price?.trim() && suggestedPrice != null) {
-                                  updateLine(line.key, { unit_price: String(suggestedPrice).replace('.', ',') })
-                                }
-                              }
-                            }}
-                          >
-                            <option value="kg">kg</option>
-                            <option value="un">un</option>
-                          </select>
-                        </div>
-                        <div className="md:col-span-3">
-                          <Label>Qtd. ({line.qty_unit})</Label>
-                          <Input
-                            className="mt-1"
-                            inputMode="decimal"
-                            placeholder="0"
-                            value={line.qty}
-                            onChange={(e) => updateLine(line.key, { qty: e.target.value })}
-                          />
-                        </div>
-                        <div className="md:col-span-6">
-                          <MoneyInput
-                            label={`Preço por ${line.qty_unit}`}
-                            value={line.unit_price}
-                            onChange={(e) => updateLine(line.key, { unit_price: e.target.value })}
-                          />
-                          {selectedProduct ? (
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              Sugestão:{' '}
-                              {(() => {
-                                const cost =
-                                  line.qty_unit === 'kg'
-                                    ? (selectedProduct.latest_cost_kg?.cost ?? null)
-                                    : (selectedProduct.latest_cost_un?.cost ?? null)
-                                const target =
-                                  line.qty_unit === 'kg' ? selectedProduct.target_profit_kg : selectedProduct.target_profit_un
-                                if (cost == null || target == null) return '—'
-                                return formatMoney(cost + target)
-                              })()}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div className="md:col-span-6">
-                          <MoneyInput
-                            label="Custo (snapshot)"
-                            value={line.unit_cost_snapshot}
-                            onChange={(e) => updateLine(line.key, { unit_cost_snapshot: e.target.value })}
-                          />
-                        </div>
-                        {selectedProduct ? (
-                          <div className="md:col-span-12 rounded-md border border-border bg-background/80 px-3 py-2 text-xs text-muted-foreground">
-                            {(() => {
-                              const q = parseNumberPtBr(line.qty ?? '')
-                              const costUnit = parseMoneyPtBr(line.unit_cost_snapshot ?? '')
-                              const pct = effectiveCommissionPercent(selectedProduct, orgDefaultCommission)
-                              if (q == null || costUnit == null || q <= 0) {
-                                return (
-                                  <>
-                                    Comissão %: {pct.toFixed(2).replace('.', ',')}%
-                                    {selectedProduct.commission_percent != null ? ' (produto)' : ' (organização)'}
-                                    {' — '}
-                                    informe qtd e custo para ver a base (custo total).
-                                  </>
-                                )
-                              }
-                              const comm = computeSaleCommissionAmount({
-                                qty: q,
-                                unitCostSnapshot: costUnit,
-                                product: selectedProduct,
-                                orgDefaultPercent: orgDefaultCommission,
-                              })
-                              return (
-                                <>
-                                  <div>
-                                    Comissão {pct.toFixed(2).replace('.', ',')}% sobre custo total{' '}
-                                    <span className="font-medium text-foreground">{formatMoney(comm.commissionBase)}</span>
-                                    {' '}
-                                    ({q} × {formatMoney(costUnit)})
-                                  </div>
-                                  <div className="mt-1 font-semibold text-foreground">
-                                    Comissão estimada: {formatMoney(comm.commissionAmount)}
-                                  </div>
-                                </>
-                              )
-                            })()}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                className="mt-2 w-full sm:w-auto"
-                onClick={() => setLines((prev) => [...prev, newSaleLine()])}
-              >
-                <Plus className="mr-2 h-4 w-4" aria-hidden />
-                Adicionar produto
-              </Button>
-
-              <div className="mt-4 rounded-lg border border-border bg-muted/20 p-4">
-                <div className="mb-3 text-sm font-semibold">Imposto sobre lucro + comissão</div>
-                <SaleTaxFields
-                  baseAmount={draftProfitPlusCommission}
-                  percent={taxPercent}
-                  amount={taxAmount}
-                  onPercentChange={setTaxPercent}
-                  onAmountChange={setTaxAmount}
-                />
-              </div>
-
-              {errorMsg ? <div className="mt-3 text-sm text-destructive">{errorMsg}</div> : null}
-
-              <DialogFooter className="mt-4 gap-2 sm:justify-end">
-                <Button type="button" variant="outline" onClick={() => setOrderDialog(null)}>
-                  Cancelar
-                </Button>
-                <Button type="button" onClick={onSubmitOrderSave} disabled={saveOrderMutation.isPending}>
-                  {saveOrderMutation.isPending
-                    ? 'Salvando…'
-                    : isEditMode
-                      ? 'Salvar alterações'
-                      : 'Salvar pedido'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </CardHeader>
-      </Card>
-
       {monthFilter ? (
         <p className="text-sm text-muted-foreground">
           Filtro ativo: <span className="font-medium text-foreground">{formatMonthLabel(monthFilter)}</span>
@@ -755,84 +737,82 @@ export function SalesPage() {
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">
-          {totalOrderCount} pedido{totalOrderCount === 1 ? '' : 's'} no total. Use &quot;Busca por mês&quot; para
-          refinar.
+          {totalOrderCount} pedido{totalOrderCount === 1 ? '' : 's'} no total. Use &quot;Busca por mês&quot; para refinar.
         </p>
       )}
 
-      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-        <Kpi title="Faturamento" value={formatMoney(totals.revenue)} />
-        <Kpi title="Custo (snapshot)" value={formatMoney(totals.cost)} />
-        <Kpi title="Lucro bruto" value={formatMoney(totals.profit)} />
-        <Kpi title="Comissão" value={formatMoney(totals.commission)} />
-        <Kpi title="Lucro + comissão" value={formatMoney(totals.profitPlusCommission)} />
-        <Kpi title="Imposto" value={formatMoney(totals.taxTotal)} />
-        <Kpi title="Líquido" value={formatMoney(totals.netAfterTax)} />
-        <Kpi title="Margem" value={`${(totals.margin * 100).toFixed(2)}%`} />
-      </section>
+      <div className="space-y-6">
+        <StatSection
+          title={monthFilter ? `Resultado — ${formatMonthLabel(monthFilter)}` : 'Resultado geral'}
+          description="Principais indicadores do período selecionado"
+        >
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard label="Faturamento" value={formatMoney(totals.revenue)} />
+            <StatCard label="Lucro bruto" value={formatMoney(totals.profit)} accent="positive" />
+            <StatCard label="Líquido após imposto" value={formatMoney(totals.netAfterTax)} accent="positive" />
+            <StatCard label="Margem" value={`${(totals.margin * 100).toFixed(2).replace('.', ',')}%`} />
+          </div>
+        </StatSection>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Todos os pedidos</CardTitle>
-          <div className="text-sm text-muted-foreground">
+        <StatSection title="Composição" description="Custo, comissão e impostos">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard label="Custo (snapshot)" value={formatMoney(totals.cost)} accent="muted" />
+            <StatCard label="Comissão" value={formatMoney(totals.commission)} />
+            <StatCard label="Lucro + comissão" value={formatMoney(totals.profitPlusCommission)} accent="positive" />
+            <StatCard label="Imposto" value={formatMoney(totals.taxTotal)} />
+          </div>
+        </StatSection>
+      </div>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Pedidos</h2>
+          <p className="text-sm text-muted-foreground">
             {monthFilter
               ? `Exibindo pedidos de ${formatMonthLabel(monthFilter)}.`
               : 'Histórico completo da organização.'}
+          </p>
+        </div>
+
+        {salesQuery.isError ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+            Erro ao carregar vendas.{' '}
+            <span className="text-muted-foreground">{formatQueryError(salesQuery.error)}</span>
           </div>
-        </CardHeader>
-        <CardContent>
-          {salesQuery.isError ? (
-            <div className="text-sm text-rose-700">
-              Erro ao carregar vendas.{' '}
-              <span className="text-muted-foreground">
-                {formatQueryError(salesQuery.error)}
-              </span>
-            </div>
-          ) : (salesQuery.data ?? []).length === 0 ? (
-            <div className="text-sm text-muted-foreground">Nenhuma venda registrada ainda.</div>
-          ) : orderGroups.length === 0 ? (
-            <div className="text-sm text-muted-foreground">
-              Nenhum pedido em {formatMonthLabel(monthFilter)}.{' '}
-              <button type="button" className="font-medium text-primary underline" onClick={() => setMonthFilter('')}>
-                Ver todas
-              </button>
-            </div>
-          ) : (
-            <div className="max-h-[min(70vh,720px)] divide-y divide-border overflow-y-auto rounded-md border border-border">
-              {orderGroups.map((groupLines) => (
-                <SaleOrderRow
-                  key={groupLines[0]!.order_id ?? groupLines[0]!.id}
-                  lines={groupLines}
-                  products={products}
-                  onEdit={() => openEditDialog(groupLines)}
-                  onDeleteGroup={() => deleteGroupMutation.mutate(groupLines.map((s) => s.id))}
-                  onDeleteLine={(id) => deleteLineMutation.mutate(id)}
-                  onSaveTax={(lineIds, tax) => updateTaxMutation.mutateAsync({ lineIds, ...tax })}
-                  isSavingTax={updateTaxMutation.isPending}
-                  isDeletingGroup={deleteGroupMutation.isPending}
-                  isDeletingLine={deleteLineMutation.isPending}
-                />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        ) : (salesQuery.data ?? []).length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            Nenhuma venda registrada ainda. Clique em &quot;Novo lançamento&quot; para começar.
+          </div>
+        ) : orderGroups.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            Nenhum pedido em {formatMonthLabel(monthFilter)}.{' '}
+            <button type="button" className="font-medium text-primary underline" onClick={() => setMonthFilter('')}>
+              Ver todas
+            </button>
+          </div>
+        ) : (
+          <div className="max-h-[min(70vh,720px)] space-y-3 overflow-y-auto pr-1">
+            {orderGroups.map((groupLines) => (
+              <SalesOrderCard
+                key={groupLines[0]!.order_id ?? groupLines[0]!.id}
+                lines={groupLines}
+                products={products}
+                onEdit={() => openEditDialog(groupLines)}
+                onDeleteGroup={() => deleteGroupMutation.mutate(groupLines.map((s) => s.id))}
+                onDeleteLine={(id) => deleteLineMutation.mutate(id)}
+                onSaveTax={(lineIds, tax) => updateTaxMutation.mutateAsync({ lineIds, ...tax })}
+                isSavingTax={updateTaxMutation.isPending}
+                isDeletingGroup={deleteGroupMutation.isPending}
+                isDeletingLine={deleteLineMutation.isPending}
+                renderLineReport={(sale, product) => <SaleLineReport sale={sale} product={product} />}
+              />
+            ))}
+          </div>
+        )}
+      </section>
         </>
       )}
     </div>
-  )
-}
-
-function Kpi({ title, value }: { title: string; value: string }) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold">{value}</div>
-      </CardContent>
-    </Card>
   )
 }
 
@@ -968,242 +948,6 @@ function SaleLineReport({
               <span className="font-semibold text-rose-700">-{formatMoney(Math.abs(deltaVsTarget))}</span>
             )}
           </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SaleOrderRow({
-  lines,
-  products,
-  onEdit,
-  onDeleteGroup,
-  onDeleteLine,
-  onSaveTax,
-  isSavingTax,
-  isDeletingGroup,
-  isDeletingLine,
-}: {
-  lines: Sale[]
-  products: Product[]
-  onEdit: () => void
-  onDeleteGroup: () => void
-  onDeleteLine: (id: string) => void
-  onSaveTax: (
-    lineIds: string[],
-    tax: { tax_amount: number | null; tax_percent_snapshot: number | null },
-  ) => Promise<unknown>
-  isSavingTax: boolean
-  isDeletingGroup: boolean
-  isDeletingLine: boolean
-}) {
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const [taxDraftPercent, setTaxDraftPercent] = useState('')
-  const [taxDraftAmount, setTaxDraftAmount] = useState('')
-  const [taxError, setTaxError] = useState<string | null>(null)
-  const first = lines[0]!
-  const multi = lines.length > 1
-  const sortedLines = useMemo(
-    () => [...lines].sort((a, b) => a.created_at.localeCompare(b.created_at)),
-    [lines],
-  )
-
-  const revenue = lines.reduce((acc, s) => acc + s.qty * s.unit_price, 0)
-  const cost = lines.reduce((acc, s) => acc + s.qty * s.unit_cost_snapshot, 0)
-  const profit = orderProfit(lines)
-  const commission = orderCommission(lines)
-  const profitPlusCommission = orderProfitPlusCommission(lines)
-  const tax = orderTaxAmount(lines)
-  const taxPct = orderTaxPercent(lines)
-  const netAfterTax = orderNetAfterTax(lines)
-
-  useEffect(() => {
-    if (detailsOpen) {
-      const drafts = loadSaleTaxDrafts({
-        tax_amount: tax > 0 ? tax : null,
-        tax_percent_snapshot: taxPct,
-      })
-      setTaxDraftPercent(drafts.percent)
-      setTaxDraftAmount(drafts.amount)
-      setTaxError(null)
-    }
-  }, [detailsOpen, tax, taxPct])
-
-  const titleBits = lines.map((s) => s.product?.name ?? 'Produto').join(' + ')
-  const dateStr = new Date(first.sold_at).toISOString().slice(0, 10)
-
-  return (
-    <div className="grid grid-cols-1 gap-2 px-3 py-2 md:grid-cols-[1fr_0.42fr_0.42fr_0.42fr_0.38fr_0.45fr_0.38fr_0.38fr_auto] md:items-center">
-      <div>
-        <div className="text-sm font-medium text-slate-900">
-          {multi ? `Pedido (${lines.length} produtos)` : titleBits} • {dateStr}
-        </div>
-        <div className="text-xs text-slate-600">
-          {multi ? (
-            <span>{titleBits}</span>
-          ) : (
-            <>
-              Qtd: {first.qty}
-              {first.qty_unit ? ` ${first.qty_unit}` : ''} • Preço: {formatMoney(first.unit_price)} • Custo:{' '}
-              {formatMoney(first.unit_cost_snapshot)}
-            </>
-          )}
-          {formatSaleRegions(first) ? ` • ${formatSaleRegions(first)}` : ''}
-          {first.notes ? ` • ${first.notes}` : ''}
-        </div>
-      </div>
-      <div className="text-sm text-slate-900">Receita {formatMoney(revenue)}</div>
-      <div className="text-sm text-slate-900">Custo {formatMoney(cost)}</div>
-      <div className="text-sm font-medium text-slate-900">Lucro {formatMoney(profit)}</div>
-      <div className="text-sm text-slate-900">Com. {formatMoney(commission)}</div>
-      <div className="text-sm font-semibold text-emerald-800">L.+C. {formatMoney(profitPlusCommission)}</div>
-      <div className="text-sm text-slate-900">
-        Imp. {formatMoney(tax)}
-        {taxPct != null && taxPct > 0 ? (
-          <span className="text-xs text-slate-600"> ({taxPct.toFixed(2).replace('.', ',')}%)</span>
-        ) : null}
-      </div>
-      <div className="text-sm font-medium text-slate-900">Líq. {formatMoney(netAfterTax)}</div>
-      <div className="md:text-right">
-        <div className="flex items-center justify-end gap-1">
-          <Button variant="ghost" onClick={onEdit} disabled={isDeletingGroup || isDeletingLine}>
-            <Pencil className="mr-1 h-4 w-4" aria-hidden />
-            Editar
-          </Button>
-          <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
-            <DialogTrigger asChild>
-              <Button variant="ghost">Detalhes</Button>
-            </DialogTrigger>
-            <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{multi ? 'Relatório do pedido' : 'Relatório da venda'}</DialogTitle>
-                <DialogDescription>
-                  {dateStr}
-                  {formatSaleRegions(first) ? ` • ${formatSaleRegions(first)}` : ''}
-                </DialogDescription>
-              </DialogHeader>
-
-              {first.notes ? (
-                <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                  {first.notes}
-                </p>
-              ) : null}
-
-              <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/30 p-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-                <div>
-                  <div className="text-xs text-muted-foreground">Lucro</div>
-                  <div className="font-semibold">{formatMoney(profit)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Comissão</div>
-                  <div className="font-semibold">{formatMoney(commission)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Lucro + comissão</div>
-                  <div className="font-semibold text-emerald-800">{formatMoney(profitPlusCommission)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground">Imposto</div>
-                  <div className="font-semibold">
-                    {formatMoney(tax)}
-                    {taxPct != null && taxPct > 0 ? (
-                      <span className="text-xs font-normal text-muted-foreground">
-                        {' '}
-                        ({taxPct.toFixed(2).replace('.', ',')}%)
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="col-span-2 sm:col-span-1 lg:col-span-2">
-                  <div className="text-xs text-muted-foreground">Líquido após imposto</div>
-                  <div className="font-semibold text-emerald-800">{formatMoney(netAfterTax)}</div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border bg-card p-4">
-                <div className="mb-3 text-sm font-semibold">Imposto sobre lucro + comissão</div>
-                <SaleTaxFields
-                  baseAmount={profitPlusCommission}
-                  percent={taxDraftPercent}
-                  amount={taxDraftAmount}
-                  onPercentChange={setTaxDraftPercent}
-                  onAmountChange={setTaxDraftAmount}
-                />
-                {taxError ? <p className="mt-2 text-sm text-destructive">{taxError}</p> : null}
-                <Button
-                  type="button"
-                  className="mt-3"
-                  size="sm"
-                  disabled={isSavingTax || isDeletingGroup || isDeletingLine}
-                  onClick={async () => {
-                    setTaxError(null)
-                    const parsed = parseSaleTaxInput({
-                      baseAmount: profitPlusCommission,
-                      percentRaw: taxDraftPercent,
-                      amountRaw: taxDraftAmount,
-                    })
-                    if (!parsed.ok) {
-                      setTaxError(parsed.error)
-                      return
-                    }
-                    try {
-                      await onSaveTax(sortedLines.map((s) => s.id), parsed.tax)
-                    } catch (e) {
-                      setTaxError(e instanceof Error ? e.message : 'Erro ao salvar imposto')
-                    }
-                  }}
-                >
-                  {isSavingTax ? 'Salvando…' : 'Salvar imposto'}
-                </Button>
-              </div>
-
-              <div className="space-y-6">
-                {lines.map((sale) => {
-                  const product = products.find((p) => p.id === sale.product_id) ?? null
-                  return (
-                    <div key={sale.id} className="space-y-3 border-b border-border pb-6 last:border-0 last:pb-0">
-                      <SaleLineReport sale={sale} product={product} />
-                      <SaleAttachmentsSection organizationId={sale.organization_id} saleId={sale.id} />
-                      {multi ? (
-                        <div className="flex justify-end">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-destructive"
-                            onClick={() => onDeleteLine(sale.id)}
-                            disabled={isDeletingLine || isDeletingGroup}
-                          >
-                            Excluir só esta linha
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-                  )
-                })}
-              </div>
-
-              <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setDetailsOpen(false)
-                    onEdit()
-                  }}
-                  disabled={isDeletingGroup || isDeletingLine}
-                >
-                  <Pencil className="mr-1 h-4 w-4" aria-hidden />
-                  Editar
-                </Button>
-                <Button variant="destructive" onClick={onDeleteGroup} disabled={isDeletingGroup || isDeletingLine}>
-                  Excluir {multi ? 'pedido inteiro' : 'venda'}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-          <Button variant="ghost" onClick={onDeleteGroup} disabled={isDeletingGroup || isDeletingLine}>
-            Excluir
-          </Button>
         </div>
       </div>
     </div>
