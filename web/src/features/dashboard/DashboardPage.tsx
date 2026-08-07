@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format as formatDate } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -18,7 +18,6 @@ import {
 import { PageHeader } from '../../components/PageHeader'
 import { InteractivePageLoader } from '../../components/loading/InteractivePageLoader'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
-import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { formatMoney } from '../../lib/money'
 import { useOrg } from '../../app/org/useOrg'
@@ -33,12 +32,11 @@ import { BRAZIL_MAP_CENTER, suggestedAnchorForRegionName } from '../../lib/regio
 
 function formatShort(dateIso: string) {
   const d = new Date(dateIso)
-  return formatDate(d, 'dd/MM', { locale: ptBR })
+  return formatDate(d, 'dd/MM/yy', { locale: ptBR })
 }
 
 export function DashboardPage() {
   const { activeOrgId } = useOrg()
-  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [unitFilter, setUnitFilter] = useState<'all' | 'kg' | 'un'>('all')
   const [productFilter, setProductFilter] = useState<string>('all')
   const [regionFilter, setRegionFilter] = useState<string>('all')
@@ -68,12 +66,12 @@ export function DashboardPage() {
   }, [productsQuery.data])
 
   const filteredSales = useMemo(() => {
-    let s = (salesQuery.data ?? []).filter((x) => x.sold_at.slice(0, 7) === month)
+    let s = salesQuery.data ?? []
     if (unitFilter !== 'all') s = s.filter((x) => x.qty_unit === unitFilter)
     if (productFilter !== 'all') s = s.filter((x) => x.product_id === productFilter)
     if (regionFilter !== 'all') s = s.filter((x) => saleMatchesRegionFilter(x, regionFilter))
     return s
-  }, [salesQuery.data, month, unitFilter, productFilter, regionFilter])
+  }, [salesQuery.data, unitFilter, productFilter, regionFilter])
 
   const totals = useMemo(() => {
     const revenue = filteredSales.reduce((acc, s) => acc + s.qty * s.unit_price, 0)
@@ -124,21 +122,14 @@ export function DashboardPage() {
       byDay.set(day, row)
     }
 
-    const [y, mo] = month.split('-').map(Number)
-    const lastDay = new Date(Date.UTC(y!, mo!, 0)).getUTCDate()
-    const out: Array<{ day: string; label: string; dayNum: number; revenue: number; cost: number; profit: number }> = []
-    for (let d = 1; d <= lastDay; d++) {
-      const day = new Date(Date.UTC(y!, mo! - 1, d)).toISOString().slice(0, 10)
-      const agg = byDay.get(day) ?? { revenue: 0, cost: 0, profit: 0 }
-      out.push({
+    return [...byDay.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([day, agg]) => ({
         day,
         label: formatShort(day),
-        dayNum: d,
         ...agg,
-      })
-    }
-    return out
-  }, [filteredSales, month])
+      }))
+  }, [filteredSales])
 
   const byProduct = useMemo(() => {
     const by = new Map<string, { productId: string; name: string; revenue: number; profit: number; margin: number }>()
@@ -230,20 +221,7 @@ export function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         title="Dashboard"
-        description="Visão geral de vendas, custo, lucro, mapa por região e atingimento de alvo."
-        right={
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="block">
-              <div className="mb-1 text-xs font-medium text-muted-foreground">Mês</div>
-              <Input
-                type="month"
-                value={month}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setMonth(e.target.value)}
-                className="w-[170px]"
-              />
-            </label>
-          </div>
-        }
+        description="Visão geral de todas as vendas, custo, lucro, mapa por região e atingimento de alvo."
       />
 
       {dashboardInitialLoading ? (
@@ -251,7 +229,7 @@ export function DashboardPage() {
           variant="embedded"
           message="Montando o dashboard…"
           tips={[
-            'Carregando vendas, produtos e regiões do período…',
+            'Carregando todas as vendas, produtos e regiões…',
             'Preparando gráficos, KPIs e mapa…',
           ]}
         />
@@ -270,12 +248,8 @@ export function DashboardPage() {
         </div>
       )}
 
-      {!salesQuery.isError && (salesQuery.data ?? []).filter((x) => x.sold_at.slice(0, 7) === month).length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Nenhuma venda em{' '}
-          {new Date(`${month}-01T12:00:00`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}. Altere o
-          mês no canto superior ou cadastre vendas nesse período.
-        </p>
+      {!salesQuery.isError && (salesQuery.data ?? []).length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhuma venda registrada ainda. Cadastre vendas para ver o dashboard.</p>
       ) : null}
 
       <Card className="border-border/60 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/50">
@@ -368,7 +342,7 @@ export function DashboardPage() {
           <Kpi
             title="Lucro + comissão"
             value={formatMoney(totals.profitPlusCommission)}
-            subtitle="Lucro bruto + comissões do período"
+            subtitle="Lucro bruto + comissões"
             icon={<TrendingUp className="h-4 w-4" />}
             accent="good"
           />
@@ -389,9 +363,8 @@ export function DashboardPage() {
             Mapa regional (vendas filtradas)
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Cada ponto é uma região com vendas no mês. Tamanho ≈ receita; clique para ver pedidos, receita, lucro e
-            volume (quantidade). Cadastre coordenadas em Regiões para posicionar regiões com nomes fora do padrão de
-            estados.
+            Cada ponto é uma região com vendas. Tamanho ≈ receita; clique para ver pedidos, receita, lucro e volume
+            (quantidade). Cadastre coordenadas em Regiões para posicionar regiões com nomes fora do padrão de estados.
           </p>
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-12">
@@ -432,9 +405,9 @@ export function DashboardPage() {
         <Card className="xl:col-span-7 border-border/60 bg-background/60 backdrop-blur supports-[backdrop-filter]:bg-background/50">
           <CardHeader className="pb-3">
             <CardTitle className="flex flex-wrap items-center justify-between gap-2">
-              <span>Tendência do mês</span>
+              <span>Tendência (todas as datas)</span>
               <span className="text-xs font-medium text-muted-foreground">
-                {daily.length} dias • {filteredSales.length} vendas filtradas
+                {daily.length} dias com venda • {filteredSales.length} vendas
               </span>
             </CardTitle>
           </CardHeader>
@@ -453,12 +426,12 @@ export function DashboardPage() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.35} />
                 <XAxis
-                  dataKey="dayNum"
+                  dataKey="label"
                   tickMargin={8}
                   tick={{ fontSize: 11 }}
-                  label={{ value: 'Dia do mês', position: 'insideBottom', offset: -4, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
-                  interval={0}
-                  minTickGap={6}
+                  label={{ value: 'Data', position: 'insideBottom', offset: -4, fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                  interval="preserveStartEnd"
+                  minTickGap={24}
                 />
                 <YAxis tickFormatter={(v) => `R$ ${Number(v).toFixed(0)}`} width={78} />
                 <Tooltip

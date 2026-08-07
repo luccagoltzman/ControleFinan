@@ -33,8 +33,21 @@ function buildSchema(signup: boolean) {
   return signup ? SignupSchema : SigninSchema
 }
 
+function formatLoginError(message: string): string {
+  const lower = message.toLowerCase()
+  if (
+    lower.includes('failed to fetch') ||
+    lower.includes('network') ||
+    lower.includes('fetch failed') ||
+    lower.includes('err_name_not_resolved')
+  ) {
+    return 'Não foi possível conectar ao servidor. O projeto Supabase pode estar pausado, apagado ou com URL incorreta.'
+  }
+  return message
+}
+
 export function LoginPage() {
-  const { user } = useAuth()
+  const { user, error: authBootError } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
@@ -67,18 +80,28 @@ export function LoginPage() {
   async function onSubmit(values: FormValues) {
     setErrorMsg(null)
     if (mode === 'signin') {
-      const { error } = await supabase.auth.signInWithPassword(values)
-      if (error) {
-        setErrorMsg(error.message)
+      try {
+        const { error } = await supabase.auth.signInWithPassword(values)
+        if (error) {
+          setErrorMsg(formatLoginError(error.message))
+          return
+        }
+      } catch (err) {
+        setErrorMsg(formatLoginError(err instanceof Error ? err.message : 'Falha ao entrar'))
         return
       }
     } else {
-      const { error } = await supabase.auth.signUp({
-        email: values.email,
-        password: values.password,
-      })
-      if (error) {
-        setErrorMsg(error.message)
+      try {
+        const { error } = await supabase.auth.signUp({
+          email: values.email,
+          password: values.password,
+        })
+        if (error) {
+          setErrorMsg(formatLoginError(error.message))
+          return
+        }
+      } catch (err) {
+        setErrorMsg(formatLoginError(err instanceof Error ? err.message : 'Falha ao criar conta'))
         return
       }
     }
@@ -93,6 +116,11 @@ export function LoginPage() {
           <CardDescription>Entre para controlar preços, vendas e folha salarial.</CardDescription>
         </CardHeader>
         <CardContent>
+          {(authBootError || errorMsg) && (
+            <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {errorMsg ?? authBootError}
+            </div>
+          )}
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-muted-foreground">E-mail</label>
@@ -153,12 +181,6 @@ export function LoginPage() {
                 {errors.password_confirm ? (
                   <div className="mt-1 text-xs text-destructive">{errors.password_confirm.message}</div>
                 ) : null}
-              </div>
-            ) : null}
-
-            {errorMsg ? (
-              <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {errorMsg}
               </div>
             ) : null}
 
